@@ -1,0 +1,41 @@
+# Bootstrap lock for the Stage-1 environment.
+#
+# Target platform: Linux x86_64, Python 3.11, NVIDIA RTX 4090.
+# This file pins the project-critical direct dependencies.
+# After the environment passes smoke tests, regenerate the exact transitive
+# snapshot on the experiment machine with:
+#
+#   bash scripts/refresh_lock.sh
+#
+# PyTorch CUDA wheel index
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+# Core GPU / LLM stack
+torch==2.7.1+cu126
+transformers==5.17.0
+datasets==5.0.1
+peft==0.21.0
+accelerate==1.15.0
+huggingface-hub==1.32.0
+
+# Data / numerical / experiment utilities
+numpy
+pandas
+pyarrow
+scipy
+scikit-learn
+sympy
+PyYAML
+tqdm
+rich
+matplotlib
+safetensors
+sentencepiece
+protobuf
+
+# Logging / testing
+tensorboard
+wandb
+pytest
+pytest-cov
+ruff
