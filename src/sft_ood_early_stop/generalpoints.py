@@ -23,7 +23,7 @@ class GeneralPointsScore:
         return asdict(self)
 
 
-_FORMULA_RE = re.compile(r"[\"']formula[\"']\\s*:\\s*[\"']([^\"']+)[\"']")
+_FORMULA_RE = re.compile(r"""["']formula["']\s*:\s*["']([^"']+)["']""")
 
 
 def extract_formula(text: str) -> str | None:
