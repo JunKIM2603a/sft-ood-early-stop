@@ -1,48 +1,73 @@
 experiment:
-  name: stage1_reproduction_pilot
+  name: stage1_generalpoints_reproduction
   stage: 1
-  purpose: reproduce_ood_peak_and_decline_before_proxy_development
+  status: frozen_for_implementation
+  frozen_date: "2026-09-23"
+  purpose: reproduce_nonmonotonic_ood_dynamics_before_proxy_development
 
 model:
-  name_or_path: null        # finalize after literature verification
-  size_target: "1.5B-3B"
+  name_or_path: Qwen/Qwen2.5-3B-Instruct
+  parameters_billion: 3.086
   dtype: bf16
+  quantization: none
 
 adaptation:
   method: lora
-  target_modules: null      # model-specific; record explicitly before running
-  r: null
-  alpha: null
-  dropout: null
+  r: 32
+  alpha: 16
+  dropout: 0.0
+  target_modules: all-linear
+  gradient_checkpointing: true
+  note: "r/alpha/all-linear follows the official GeneralPoints PEFT recipe from Lin et al.; dropout=0 is a project choice."
 
 data:
-  id_train:
-    dataset: null
-    split: null
-    max_examples: 5000
+  source: Xiaofeng77/gp-l-only-10k
+  id_rule: "J=Q=K=10"
+  ood_rule: "J=11,Q=12,K=13 (face cards as regular values)"
+  train:
+    split: train
+    subset_size: 4096
+    shuffle_seed: 20260923
+    supervision: answer_only
+  anchor:
+    source: "same shuffled train split, immediately after the 4096 SFT examples"
+    size: 512
+    labels_visible_to_selector: false
+    disjoint_from_sft_train: true
   id_validation:
-    dataset: null
-    split: null
-  ood_evaluation:
-    dataset: null
-    split: null
-  anchor_set:
-    dataset: null
-    split: null
-    fixed_across_checkpoints: true
+    split: test_id
+    use_full_official_split: true
+  ood_oracle:
+    split: test_face_cards_as_regular
+    use_full_official_split: true
+    labels_visible_to_selector: false
 
 training:
   objective: autoregressive_cross_entropy
-  epochs: null              # choose in 1-3 range
-  learning_rates: []        # target ~3 conditions after smoke test
-  seeds: [0, 1]
-  max_sequence_length: null
-  gradient_accumulation_steps: null
-  warmup_ratio: null
+  epochs: 3
+  learning_rates:
+    - 5.0e-6
+    - 1.0e-5
+    - 5.0e-5
+  lr_evidence:
+    center: "1e-5 from official GeneralPoints LoRA/PEFT script"
+    low: "0.5x conservative boundary"
+    high: "5x stronger-update boundary"
+  seeds:
+    - 42
+    - 43
+  max_sequence_length: 2048
+  effective_batch_size: 64
+  scheduler: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
 
 checkpointing:
-  save_every_optimizer_steps: 50
-  evaluate_every_optimizer_steps: 50
+  save_every_optimizer_steps: 10
+  evaluate_every_saved_checkpoint: true
+  include_step_zero_base_model: true
+  expected_steps_per_epoch: 64
+  expected_total_steps: 192
   keep_all_stage1_checkpoints: true
 
 metrics:
@@ -50,30 +75,81 @@ metrics:
     - loss
   id:
     - validation_loss
-    - exact_match
-  ood:
-    - exact_match
+    - task_success_accuracy
+  ood_oracle:
+    - task_success_accuracy
   drift:
     - parameter_l2
+    - lora_update_frobenius
     - functional_kl
-    - spectral_rotation
-    - principal_angle
+    - singular_value_change
+    - singular_vector_principal_angle
+  later_baseline:
+    - crc
+    - oplora_rho_k_optional
+
+functional_kl:
+  anchor_size: 512
+  reference: base_model
+  freeze_token_position_rule_before_running: true
+  freeze_aggregation_rule_before_running: true
 
 selection:
   oracle:
-    metric: ood_exact_match
+    metric: ood_task_success_accuracy
+    allowed_for_final_evaluation_only: true
   baselines:
     - train_loss
     - id_validation_loss
+    - id_task_success
     - fixed_step
     - parameter_l2
+    - crc
   proposed:
     - functional_kl
     - spectral_rotation
     - combined_proxy
   primary_endpoint: regret
 
+forgetting_definition:
+  peak_must_be_non_final: true
+  later_checkpoints_below_peak_min_count: 2
+  min_decline_rule: "max(5 percentage points, 2 * binomial standard error using actual OOD split size)"
+  require_no_equally_large_synchronized_id_collapse: true
+
 stage1_gate:
-  go: "Clear OOD peak then decline in >=2 training conditions, with behavior distinct from ID."
-  conditional_go: "Forgetting only in a subset of LR/model conditions; study boundary conditions."
-  kill_or_pivot: "No meaningful forgetting across reasonable LR/seed conditions."
+  go: "At least 2 of 6 LR×seed runs satisfy the predeclared clear peak-to-decline criterion."
+  conditional_go: "Only 1 run, only aggressive LR, strong seed dependence, prompt-diversity sensitivity, or dip-to-recovery/non-universal dynamics."
+  kill_or_pivot: "No meaningful non-monotonic OOD deterioration after the six LoRA runs and the predeclared full-FT capacity sentinel."
+
+boundary_controls:
+  prompt_diversity_after_go:
+    enabled: true
+    dataset: Xiaofeng77/diverse-answer-only-gp-l-only-10k
+    learning_rate: 1.0e-5
+    seeds: [42, 43]
+    epochs: 3
+  capacity_sentinel_before_kill:
+    enabled_if_all_lora_runs_null: true
+    method: full_finetuning
+    model: Qwen/Qwen2.5-3B-Instruct
+    learning_rate: 1.0e-6
+    epochs: 1
+    effective_batch_size: 64
+    note: "Closest-mechanism sentinel using Jin et al.'s full-FT GeneralPoints LR; use ZeRO-3/offload only if needed."
+
+hardware:
+  gpus: "2 x RTX 4090 24GB"
+  parallelization: "one LR/seed run per GPU"
+
+post_gate_public_confirmation:
+  launch_only_after_stage1_go_or_conditional_go: true
+  train_source: open-r1/OpenR1-Math-220k
+  train_subset_size: 4096
+  id_benchmark:
+    - MATH-500
+  ood_reasoning_benchmarks:
+    - GPQA-Diamond
+    - MMLU-Pro
+  optional_general_ood:
+    - IFEval
