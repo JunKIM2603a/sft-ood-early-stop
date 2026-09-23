@@ -1,0 +1,3 @@
+optimizer_step,id_validation_loss,id_task_accuracy,ood_task_accuracy,id_parse_rate,ood_parse_rate,id_valid_formula_rate,ood_valid_formula_rate,id_task_n,ood_task_n,evaluation_mode
+0,0.8768103472115499,0.0,0.0,0.0,0.0,0.0,0.0,32,32,SMOKE_MAX_32
+10,0.8348695966090353,0.0,0.0,0.0,0.0,0.0,0.0,32,32,SMOKE_MAX_32
