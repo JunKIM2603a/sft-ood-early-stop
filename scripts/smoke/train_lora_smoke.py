@@ -92,19 +92,29 @@ def encode_example(
         {"role": "assistant", "content": answer_text},
     ]
 
+    # Transformers 5.x defaults apply_chat_template(return_dict=True), which
+    # returns a BatchEncoding/dict-like object rather than list[int].
+    # Explicitly request the token-id list so masking logic stays unambiguous.
     prompt_ids = tokenizer.apply_chat_template(
         user_messages,
         tokenize=True,
         add_generation_prompt=True,
+        return_dict=False,
     )
     full_ids = tokenizer.apply_chat_template(
         full_messages,
         tokenize=True,
         add_generation_prompt=False,
+        return_dict=False,
     )
 
     if not isinstance(prompt_ids, list) or not isinstance(full_ids, list):
-        fail("tokenizer chat template did not return token-id lists")
+        fail(
+            "tokenizer chat template did not return token-id lists even with "
+            "return_dict=False; "
+            f"got prompt={type(prompt_ids).__name__}, "
+            f"full={type(full_ids).__name__}"
+        )
 
     if full_ids[: len(prompt_ids)] != prompt_ids:
         fail(
