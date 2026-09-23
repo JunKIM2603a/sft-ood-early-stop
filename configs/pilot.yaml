@@ -1,0 +1,79 @@
+experiment:
+  name: stage1_reproduction_pilot
+  stage: 1
+  purpose: reproduce_ood_peak_and_decline_before_proxy_development
+
+model:
+  name_or_path: null        # finalize after literature verification
+  size_target: "1.5B-3B"
+  dtype: bf16
+
+adaptation:
+  method: lora
+  target_modules: null      # model-specific; record explicitly before running
+  r: null
+  alpha: null
+  dropout: null
+
+data:
+  id_train:
+    dataset: null
+    split: null
+    max_examples: 5000
+  id_validation:
+    dataset: null
+    split: null
+  ood_evaluation:
+    dataset: null
+    split: null
+  anchor_set:
+    dataset: null
+    split: null
+    fixed_across_checkpoints: true
+
+training:
+  objective: autoregressive_cross_entropy
+  epochs: null              # choose in 1-3 range
+  learning_rates: []        # target ~3 conditions after smoke test
+  seeds: [0, 1]
+  max_sequence_length: null
+  gradient_accumulation_steps: null
+  warmup_ratio: null
+
+checkpointing:
+  save_every_optimizer_steps: 50
+  evaluate_every_optimizer_steps: 50
+  keep_all_stage1_checkpoints: true
+
+metrics:
+  train:
+    - loss
+  id:
+    - validation_loss
+    - exact_match
+  ood:
+    - exact_match
+  drift:
+    - parameter_l2
+    - functional_kl
+    - spectral_rotation
+    - principal_angle
+
+selection:
+  oracle:
+    metric: ood_exact_match
+  baselines:
+    - train_loss
+    - id_validation_loss
+    - fixed_step
+    - parameter_l2
+  proposed:
+    - functional_kl
+    - spectral_rotation
+    - combined_proxy
+  primary_endpoint: regret
+
+stage1_gate:
+  go: "Clear OOD peak then decline in >=2 training conditions, with behavior distinct from ID."
+  conditional_go: "Forgetting only in a subset of LR/model conditions; study boundary conditions."
+  kill_or_pivot: "No meaningful forgetting across reasonable LR/seed conditions."

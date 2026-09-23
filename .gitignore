@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.env
+.env.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Data and model artifacts
+data/*
+!data/README.md
+checkpoints/
+models/
+cache/
+wandb/
+mlruns/
+
+# Large experiment artifacts
+artifacts/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Results: keep compact reproducible outputs, ignore raw heavy logs
+results/raw/
+results/**/raw/
+*.log
+
+# Notebook checkpoints
+.ipynb_checkpoints/
