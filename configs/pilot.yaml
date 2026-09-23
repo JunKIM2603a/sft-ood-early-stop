@@ -2,7 +2,7 @@ experiment:
   name: stage1_generalpoints_reproduction
   stage: 1
   status: frozen_for_implementation
-  frozen_date: "2026-09-23"
+  frozen_date: "2026-09-24"
   purpose: reproduce_nonmonotonic_ood_dynamics_before_proxy_development
 
 model:
@@ -50,10 +50,13 @@ training:
   learning_rates: [5.0e-6, 1.0e-5, 5.0e-5]
   seeds: [42, 43]
   max_sequence_length: 2048
+  micro_batch_size: 8
+  gradient_accumulation_steps: 8
   effective_batch_size: 64
   scheduler: cosine
   warmup_ratio: 0.03
   weight_decay: 0.0
+  note: "micro_batch=8 passed the RTX 4090 smoke test at ~10.6 GiB peak allocated VRAM; effective batch remains 64."
 
 checkpointing:
   save_every_optimizer_steps: 10

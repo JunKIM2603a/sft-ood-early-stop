@@ -2,7 +2,7 @@
 
 Planned command-line entry points:
 
-- `train_sft.py` — run one LR/seed SFT condition and save frequent checkpoints
+- `train_stage1.py` — run one frozen Stage-1 LR/seed LoRA condition and save 10-step adapters
 - `evaluate_checkpoints.py` — evaluate ID/OOD metrics for a checkpoint series
 - `measure_functional_drift.py` — compute fixed-anchor KL drift
 - `measure_spectral_drift.py` — compute singular-vector / principal-angle drift
@@ -23,3 +23,22 @@ CUDA_VISIBLE_DEVICES=<gpu> python scripts/smoke/train_lora_smoke.py
 ```
 
 See `docs/gpu_smoke_test.md` for the PASS criteria and expected artifacts.
+
+
+## Stage-1 preflight and first pilot
+
+After the GPU smoke test passes:
+
+```bash
+python scripts/data/audit_generalpoints_tokens.py
+pytest -q tests/test_stage1_plan.py
+
+CUDA_VISIBLE_DEVICES=<gpu> \
+python scripts/train_stage1.py \
+  --learning-rate 1e-5 \
+  --seed 42
+```
+
+Do not launch the remaining five LR×seed runs until this first run finishes at
+exactly optimizer step 192 and all expected checkpoints exist. See
+`docs/stage1_training.md`.

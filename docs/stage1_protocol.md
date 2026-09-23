@@ -52,7 +52,10 @@ The split name is never trusted without semantic verification.
 - no quantization
 - gradient checkpointing
 - max length 2048
+- micro-batch 8
+- gradient accumulation 8
 - effective batch 64
+- all 4,096 frozen SFT examples must pass the 2,048-token audit without truncation
 
 ## LR × seed grid
 
@@ -63,7 +66,10 @@ The split name is never trusted without semantic verification.
 - cosine schedule
 - warmup 0.03
 - save/evaluate every 10 optimizer steps
+- expected 64 optimizer steps/epoch, 192 total
 - always evaluate step-0 base model
+
+The micro-batch 8 choice was accepted only after an RTX 4090 forward/backward/update/save/reload smoke test peaked at about 10.6 GiB allocated VRAM.
 
 ## Clear peak→decline criterion
 
