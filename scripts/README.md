@@ -10,3 +10,16 @@ Planned command-line entry points:
 - `aggregate_results.py` — compute regret tables and main-figure inputs
 
 Keep orchestration thin; reusable logic belongs in `src/sft_ood_early_stop/`.
+
+
+## Current smoke-test entry points
+
+Before implementing the full training grid:
+
+```bash
+python scripts/verify_environment.py
+python scripts/data/smoke_generalpoints.py
+CUDA_VISIBLE_DEVICES=<gpu> python scripts/smoke/train_lora_smoke.py
+```
+
+See `docs/gpu_smoke_test.md` for the PASS criteria and expected artifacts.
