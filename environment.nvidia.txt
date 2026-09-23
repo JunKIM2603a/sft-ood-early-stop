@@ -1,0 +1,29 @@
+Thu Sep 24 00:03:57 2026       
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 535.183.01             Driver Version: 535.183.01   CUDA Version: 12.2     |
+|-----------------------------------------+----------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |
+|                                         |                      |               MIG M. |
+|=========================================+======================+======================|
+|   0  NVIDIA GeForce RTX 4090        Off | 00000000:01:00.0 Off |                  Off |
+| 31%   26C    P8              19W / 450W |   1483MiB / 24564MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   1  NVIDIA GeForce RTX 4090        Off | 00000000:06:00.0 Off |                  Off |
+|  0%   24C    P8              11W / 450W |    789MiB / 24564MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+                                                                                         
++---------------------------------------------------------------------------------------+
+| Processes:                                                                            |
+|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
+|        ID   ID                                                             Usage      |
+|=======================================================================================|
+|    0   N/A  N/A      1856      G   /usr/lib/xorg/Xorg                           18MiB |
+|    0   N/A  N/A   2148845      C   ...naconda3/envs/ECGDENOISE/bin/python      672MiB |
+|    0   N/A  N/A   2192533      C   ...naconda3/envs/ECGDENOISE/bin/python      776MiB |
+|    1   N/A  N/A      1856      G   /usr/lib/xorg/Xorg                            4MiB |
+|    1   N/A  N/A   2148845      C   ...naconda3/envs/ECGDENOISE/bin/python      384MiB |
+|    1   N/A  N/A   2192533      C   ...naconda3/envs/ECGDENOISE/bin/python      384MiB |
++---------------------------------------------------------------------------------------+
