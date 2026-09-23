@@ -1,142 +1,174 @@
 # SFT OOD Early Stop
 
-> **Research question:** Can we select a checkpoint just before OOD forgetting begins during supervised fine-tuning **without using OOD validation labels**?
+> **Research question:** Can we select a useful SFT checkpoint around the onset of OOD degradation **without using OOD validation labels**?
 
-This repository studies whether **functional drift** and **spectral drift** can provide a practical checkpoint-selection signal during LLM supervised fine-tuning (SFT).
+This project studies whether **base-relative functional drift** and **parameter spectral drift** can provide practical checkpoint-selection signals during LLM supervised fine-tuning (SFT).
 
-## Motivation
+## Current evidence status
 
-Recent work suggests that OOD reasoning performance may peak early during SFT and then decline even while in-distribution (ID) performance or training loss continues to improve. This project therefore treats **phenomenon reproduction as a gate**: first establish whether the effect appears in a small open model, then evaluate label-free checkpoint selectors.
+The literature check is now complete enough to freeze Stage 1.
+
+Important corrections from the initial idea:
+
+- OOD peak→decline during SFT has been reported, but it is **not established as universal**.
+- recent work reports other trajectories such as **dip→recovery**, making optimization depth a competing explanation;
+- on GeneralPoints, later work shows fixed prompts can create instruction shortcuts, so a **prompt-diversity control is mandatory**;
+- LoRA can preserve outside-domain behavior better than full fine-tuning, so a LoRA-only null is not sufficient for a strong KILL claim;
+- UAI 2026 already proposes **CRC**, an ID-computable OOD-free checkpoint selector based on representation collapse.
+
+Therefore the novelty is **not** “the first OOD-free checkpoint selector.” The defensible question is whether functional KL and parameter singular-subspace drift are useful prospective selectors specifically along SFT-induced OOD-degradation trajectories, and whether they outperform conventional selectors and CRC.
 
 ## Core hypotheses
 
-- **H1 — Early OOD peak:** OOD performance peaks earlier than ID performance during SFT.
-- **H2 — Drift change point:** functional drift or singular-vector/principal-angle rotation shows a change point that precedes or coincides with OOD decline.
-- **H3 — Practical selection:** an OOD-label-free drift-based selector achieves lower checkpoint regret than train-loss, ID-validation, or fixed-step selectors.
+- **H1 — Non-monotonic OOD dynamics:** under at least some SFT conditions, OOD performance reaches a useful early checkpoint and later degrades differently from ID performance.
+- **H2 — Drift change point:** functional KL or singular-vector/principal-angle drift changes before or around the OOD degradation.
+- **H3 — Practical selection:** an OOD-label-free drift selector achieves lower checkpoint regret than train loss, ID validation, fixed-step selectors, and the CRC baseline.
 
 ### Competing hypotheses
 
-- **C1:** OOD forgetting appears only in some model/data/LR regimes.
-- **C2:** spectral drift correlates with OOD performance but is not useful for practical early stopping.
-- **C3:** simple functional KL drift is a stronger signal than spectral quantities.
+- **C1:** OOD forgetting is conditional on optimization, data/prompt design, model capability, or adaptation method.
+- **C2:** spectral drift is correlated with OOD behavior but is not operationally useful for checkpoint selection.
+- **C3:** simple functional KL is a stronger practical signal than parameter spectral quantities.
+- **C4:** representation-collapse CRC is already as good as or better than the proposed drift signals.
+
+## Frozen Stage 1
+
+Detailed protocol: `docs/stage1_protocol.md`
+
+### Primary model
+
+`Qwen/Qwen2.5-3B-Instruct`
+
+### Controlled task
+
+`Xiaofeng77/gp-l-only-10k` GeneralPoints
+
+- SFT train: deterministic **4,096-example** subset of the official 10k train split
+- ID rule: **J=Q=K=10**
+- OOD oracle rule: **J=11, Q=12, K=13**
+- fixed unlabeled functional-KL anchor: **512 prompts** disjoint from SFT train
+
+### LoRA
+
+- r=32
+- alpha=16
+- all-linear target modules
+- bf16
+- no quantization in the main pilot
+- effective batch size 64
+- 3 epochs
+
+### LR × seed grid
+
+```text
+LR:   5e-6, 1e-5, 5e-5
+seed: 42, 43
+------------------------
+6 primary runs
+```
+
+`1e-5` is the task-specific LoRA anchor from the released GeneralPoints PEFT recipe. The other two LRs probe a conservative and stronger-update regime.
+
+### Checkpoints
+
+- base model = step 0
+- save every **10 optimizer steps**
+- expected ~192 optimizer steps total
+- evaluate every saved checkpoint
+
+The short run requires denser checkpoints than the earlier generic 50–100-step placeholder.
+
+## Stage-1 gate
+
+A run counts as clear peak→decline only if:
+
+1. OOD peak is not the final checkpoint;
+2. at least two later checkpoints remain below the peak;
+3. decline is at least max(5 percentage points, 2×binomial SE);
+4. there is no equally large synchronized ID collapse.
+
+- **GO:** at least 2/6 primary runs pass.
+- **CONDITIONAL GO:** effect is isolated to one LR/seed, turns into dip→recovery, or disappears with prompt diversity.
+- **KILL / PIVOT:** no meaningful non-monotonic OOD degradation after the six LoRA runs **and** the predeclared full-FT capacity sentinel.
+
+## Boundary controls
+
+### Prompt-diversity control
+
+After a primary GO:
+
+- official diverse-answer-only GeneralPoints data
+- LR 1e-5
+- seeds 42/43
+- same model / LoRA / epochs
+
+This tests whether the observed rule-shift failure is primarily a fixed-prompt shortcut.
+
+### Capacity sentinel
+
+If all six LoRA runs are null:
+
+- same Qwen2.5-3B-Instruct
+- same fixed-prompt task
+- full-parameter SFT
+- LR 1e-6
+- 1 epoch
+
+This checks the known possibility that LoRA itself suppresses forgetting.
 
 ## Primary endpoint
-
-The main endpoint is **checkpoint-selection regret**, not correlation:
 
 ```text
 Regret = OOD_oracle - OOD_selected_by_proxy
 ```
 
-Selectors to compare:
+Selectors to compare after the Stage-1 gate:
 
 1. training loss
 2. ID validation loss / ID metric
-3. fixed epoch / fixed step
-4. parameter-norm drift
-5. functional KL drift
-6. spectral rotation
-7. combined proxy
+3. fixed checkpoint
+4. parameter L2 drift
+5. **CRC representation-collapse baseline**
+6. functional KL drift
+7. singular-vector / principal-angle drift
+8. combined proxy
+9. optional OPLoRA-style dominant-subspace interference diagnostic
 
-## Minimum decisive experiment
+Correlation is secondary; the main question is whether the signal actually selects a low-regret checkpoint.
 
-### Stage 1 — Verify the phenomenon
+## Public reasoning confirmation
 
-- one open LLM in the **1.5B–3B** range
-- **LoRA**
-- ID SFT data: roughly **2K–5K** examples
-- about **3 learning rates**
-- **2 seeds**
-- **1–3 epochs**
-- frequent checkpoint evaluation, targeting roughly every **50–100 optimizer steps** when practical
+Controlled GeneralPoints is a diagnostic gate, not sufficient evidence for broad reasoning claims.
 
-At each checkpoint record:
+After GO / CONDITIONAL GO:
 
-- train loss
-- ID validation loss
-- ID accuracy / exact match
-- OOD accuracy / exact match
-- parameter L2 drift
-- functional KL drift
-- singular-vector / principal-angle drift
+- SFT: fixed 4K subset from `open-r1/OpenR1-Math-220k`
+- ID: MATH-500
+- OOD reasoning: GPQA-Diamond, MMLU-Pro
+- optional broader shift: IFEval
 
-### Stage 1 gate
+GSM8K is not the primary OOD protocol because the original GSM8K paper does not define a canonical cross-benchmark OOD split.
 
-- **GO:** clear OOD peak-and-decline behavior appears in at least two training conditions and differs from ID behavior.
-- **CONDITIONAL GO:** forgetting appears only under some LR/model conditions; pivot toward studying its boundary conditions.
-- **KILL / PIVOT:** no meaningful forgetting appears across reasonable LR/seed conditions.
-
-Stage 2 begins only after Stage 1 passes or conditionally passes.
-
-## Functional drift
-
-For a fixed anchor set (A):
-
-[
-D_{func}(t)
-=
-\mathbb{E}_{x \in A}
-\mathrm{KL}
-\left[
-p_{\theta_t}(\cdot|x)
-\;\|\;
-p_{\theta_0}(\cdot|x)
-\right].
-]
-
-The anchor set must remain fixed across checkpoints.
-
-## Planned main figure
-
-x-axis: SFT step
-
-Plot or align:
-
-- ID performance
-- OOD performance
-- functional drift
-- spectral drift
-
-Report a separate selector table:
-
-| Selector | Selected checkpoint | OOD score | Regret |
-|---|---:|---:|---:|
-| Oracle OOD | TBD | TBD | 0 |
-| Train loss | TBD | TBD | TBD |
-| ID selector | TBD | TBD | TBD |
-| Functional KL | TBD | TBD | TBD |
-| Spectral rotation | TBD | TBD | TBD |
-| Combined proxy | TBD | TBD | TBD |
-
-## Hardware
-
-- NVIDIA GeForce RTX 4090 24GB × 2
-- assign different LR/seed conditions to the two GPUs for parallel pilot runs
-
-## Milestones
-
-- **~2026-10-02:** literature verification + professor proposal
-- **next 1–2 days after PASS:** base/SFT evaluation pipeline
-- **following 1–2 days:** forgetting-curve reproduction
-- **2026-10-12:** main finding + OOD/drift figure
-- **November:** expand model/data/LR/seed robustness
-- **2026-12-14:** experiments and thesis complete
-
-## Repository layout
+## Repository guide
 
 ```text
 .
 ├── README.md
-├── configs/              # experiment configs
-├── docs/                 # protocol, metrics, literature notes
-├── scripts/              # training/evaluation entry points
-├── src/                  # reusable implementation
-├── tests/                # unit/smoke tests
-├── data/                 # local datasets/caches (gitignored)
-├── checkpoints/          # local model checkpoints (gitignored)
-└── results/              # compact tables/figures/metadata
+├── configs/
+│   └── pilot.yaml                    # frozen Stage-1 machine-readable config
+├── docs/
+│   ├── research_plan.md
+│   ├── literature_matrix.md          # verified evidence / competing results
+│   ├── stage1_protocol.md            # frozen Stage-1 decision
+│   ├── novelty_positioning.md        # revised novelty after CRC
+│   └── experiment_protocol.md
+├── scripts/
+├── src/
+├── tests/
+├── data/
+└── results/
 ```
 
 ## Research principle
 
-Do **not** assume OOD forgetting is universal. The first experiment is a reproduction gate. A negative result is useful if it identifies the model/data/LR regimes in which the phenomenon does or does not occur.
+Do **not** force a universal OOD-forgetting story. A negative or conditional result is useful if it identifies the optimization, prompt/data, model-capacity, or adaptation regime in which the phenomenon appears.
