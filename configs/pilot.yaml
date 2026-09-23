@@ -34,7 +34,14 @@ data:
     size: 512
     labels_visible_to_selector: false
     disjoint_from_sft_train: true
-  id_validation:
+  id_loss_validation:
+    source: "same shuffled answer-only train split, after the 4096 SFT + 512 anchor examples"
+    size: 512
+    labels_visible_to_id_selector: true
+    disjoint_from_sft_train: true
+    disjoint_from_anchor: true
+  id_task_evaluation:
+    source: Xiaofeng77/gp-l-only-10k
     split_preference: [test_id, test]
     semantic_check: "must verify J=Q=K=10 from metadata/prompt"
     use_full_official_split: true

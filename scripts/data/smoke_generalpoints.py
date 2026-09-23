@@ -33,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-repo-id", default=DEFAULT_EVAL_REPO)
     parser.add_argument("--train-size", type=int, default=4096)
     parser.add_argument("--anchor-size", type=int, default=512)
+    parser.add_argument("--id-validation-size", type=int, default=512)
     parser.add_argument("--seed", type=int, default=20260923)
     parser.add_argument(
         "--manifest-dir",
@@ -175,7 +176,9 @@ def main() -> int:
             "Expected the official answer-only SFT dataset."
         )
 
-    required_train_rows = args.train_size + args.anchor_size
+    required_train_rows = (
+        args.train_size + args.anchor_size + args.id_validation_size
+    )
     if len(train) < required_train_rows:
         fail(
             f"train split has {len(train)} rows, but Stage 1 requires at least "
@@ -207,15 +210,33 @@ def main() -> int:
     indices = list(range(len(train)))
     random.Random(args.seed).shuffle(indices)
     sft_indices = indices[: args.train_size]
-    anchor_indices = indices[
-        args.train_size : args.train_size + args.anchor_size
-    ]
+    anchor_start = args.train_size
+    anchor_end = anchor_start + args.anchor_size
+    anchor_indices = indices[anchor_start:anchor_end]
 
-    if set(sft_indices) & set(anchor_indices):
+    id_validation_end = anchor_end + args.id_validation_size
+    id_validation_indices = indices[anchor_end:id_validation_end]
+
+    sft_set = set(sft_indices)
+    anchor_set = set(anchor_indices)
+    id_validation_set = set(id_validation_indices)
+    if sft_set & anchor_set:
         fail("SFT and anchor subsets overlap")
+    if sft_set & id_validation_set:
+        fail("SFT and ID-validation subsets overlap")
+    if anchor_set & id_validation_set:
+        fail("anchor and ID-validation subsets overlap")
 
     args.manifest_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = args.manifest_dir / "manifest.json"
+
+    if manifest_path.exists():
+        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if previous.get("sft_indices") not in (None, sft_indices):
+            fail("existing manifest has different frozen SFT indices")
+        if previous.get("anchor_indices") not in (None, anchor_indices):
+            fail("existing manifest has different frozen anchor indices")
+
     manifest = {
         "train_repo_id": args.train_repo_id,
         "eval_repo_id": args.eval_repo_id,
@@ -228,10 +249,13 @@ def main() -> int:
         "shuffle_seed": args.seed,
         "sft_train_size": args.train_size,
         "anchor_size": args.anchor_size,
+        "id_validation_size": args.id_validation_size,
         "sft_indices": sft_indices,
         "anchor_indices": anchor_indices,
+        "id_validation_indices": id_validation_indices,
         "sft_indices_sha256": indices_digest(sft_indices),
         "anchor_indices_sha256": indices_digest(anchor_indices),
+        "id_validation_indices_sha256": indices_digest(id_validation_indices),
     }
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
@@ -240,7 +264,8 @@ def main() -> int:
 
     print(f"Manifest written to: {manifest_path}")
     print(
-        f"SFT subset={len(sft_indices)} | anchor={len(anchor_indices)} | overlap=0"
+        f"SFT subset={len(sft_indices)} | anchor={len(anchor_indices)} | "
+        f"ID validation={len(id_validation_indices)} | pairwise overlap=0"
     )
     print("PASS: GeneralPoints Stage-1 data smoke test succeeded.")
     return 0

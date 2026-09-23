@@ -110,6 +110,12 @@ def main() -> int:
     train_repo = manifest["train_repo_id"]
     train_split = manifest.get("train_split", "train")
     sft_indices = manifest["sft_indices"]
+    id_validation_indices = manifest.get("id_validation_indices")
+    if id_validation_indices is None:
+        fail(
+            "manifest has no frozen ID validation subset; rerun "
+            "python scripts/data/smoke_generalpoints.py"
+        )
 
     print("=== GeneralPoints Stage-1 token-length audit ===")
     print("Model:", args.model_id)
@@ -117,7 +123,9 @@ def main() -> int:
     print("Frozen SFT examples:", len(sft_indices))
     print("Max length:", args.max_length)
 
-    dataset = load_dataset(train_repo, split=train_split).select(sft_indices)
+    full_dataset = load_dataset(train_repo, split=train_split)
+    dataset = full_dataset.select(sft_indices)
+    id_validation = full_dataset.select(id_validation_indices)
     if len(dataset) != len(sft_indices):
         fail("selected dataset size does not match manifest SFT index count")
     if "answer" not in dataset.column_names:
@@ -165,8 +173,27 @@ def main() -> int:
         "mean": float(np.mean(full_lengths)),
     }
 
+    id_validation_lengths: list[int] = []
+    id_validation_over_limit: list[dict[str, int]] = []
+    for position, example in enumerate(id_validation):
+        _, _, full_len = token_lengths(
+            tokenizer,
+            example["question"],
+            example["answer"],
+        )
+        id_validation_lengths.append(full_len)
+        if full_len > args.max_length:
+            id_validation_over_limit.append(
+                {
+                    "subset_position": position,
+                    "dataset_index": int(id_validation_indices[position]),
+                    "tokens": full_len,
+                }
+            )
+
+    clean_pass = not over_limit and not id_validation_over_limit
     report = {
-        "status": "PASS" if not over_limit else "FAIL",
+        "status": "PASS" if clean_pass else "FAIL",
         "model_id": args.model_id,
         "manifest": str(args.manifest),
         "train_repo_id": train_repo,
@@ -178,7 +205,14 @@ def main() -> int:
         "assistant_length_max": int(max(assistant_lengths)),
         "over_limit_count": len(over_limit),
         "over_limit_examples": over_limit[:100],
+        "id_validation_num_examples": len(id_validation),
+        "id_validation_max_tokens": int(max(id_validation_lengths)),
+        "id_validation_over_limit_count": len(id_validation_over_limit),
+        "id_validation_over_limit_examples": id_validation_over_limit[:100],
         "manifest_sft_indices_sha256": manifest.get("sft_indices_sha256"),
+        "manifest_id_validation_indices_sha256": manifest.get(
+            "id_validation_indices_sha256"
+        ),
     }
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -194,16 +228,26 @@ def main() -> int:
     )
     print("  max prompt tokens:", report["prompt_length_max"])
     print("  max supervised assistant tokens:", report["assistant_length_max"])
-    print("  over max_length:", len(over_limit))
+    print("  SFT over max_length:", len(over_limit))
+    print(
+        "  ID validation max tokens:",
+        report["id_validation_max_tokens"],
+        "| over max_length:",
+        len(id_validation_over_limit),
+    )
     print("Report:", args.output)
 
-    if over_limit:
+    if over_limit or id_validation_over_limit:
         fail(
-            f"{len(over_limit)} frozen Stage-1 samples exceed "
-            f"max_length={args.max_length}. Do not silently truncate them."
+            "token audit failed: "
+            f"SFT over-limit={len(over_limit)}, "
+            f"ID-validation over-limit={len(id_validation_over_limit)}. "
+            "Do not silently truncate them."
         )
 
-    print("PASS: all frozen Stage-1 SFT examples fit without truncation.")
+    print(
+        "PASS: frozen SFT and ID-validation examples fit without truncation."
+    )
     return 0
 
 

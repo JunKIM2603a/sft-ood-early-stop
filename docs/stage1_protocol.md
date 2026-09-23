@@ -20,6 +20,8 @@ different Hugging Face repositories.
 - use 4,096 deterministic train examples
 - seed 20260923
 - reserve the next 512 train examples as the unlabeled functional-KL anchor
+- reserve the following 512 examples as labeled ID-loss validation
+- all three subsets are pairwise disjoint
 - training rule: J=Q=K=10
 
 ### Evaluation
@@ -30,10 +32,14 @@ The currently published evaluation repository exposes six splits:
 `train`, `test_5cards`, `test_face_cards_as_regular`, `test_fake`,
 `test`, and `test_large`.
 
-For ID evaluation:
+For ID task evaluation:
 
 1. use `test_id` if a future official release provides it;
 2. otherwise use `test` **only after the smoke test verifies J=Q=K=10**.
+
+ID validation loss is measured separately on the frozen 512-example labeled
+holdout from the answer-only SFT source. This prevents the OOD oracle split from
+being involved in the loss-based selector baseline.
 
 For the primary OOD oracle:
 

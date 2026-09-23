@@ -42,3 +42,23 @@ python scripts/train_stage1.py \
 Do not launch the remaining five LR×seed runs until this first run finishes at
 exactly optimizer step 192 and all expected checkpoints exist. See
 `docs/stage1_training.md`.
+
+
+## Checkpoint evaluation
+
+After the first Stage-1 run completes:
+
+```bash
+python scripts/data/smoke_generalpoints.py
+python scripts/data/audit_generalpoints_tokens.py
+pytest -q tests/test_generalpoints_verifier.py
+
+CUDA_VISIBLE_DEVICES=<gpu> \
+python scripts/evaluate_stage1.py \
+  --steps 0,10 \
+  --max-examples 32 \
+  --eval-batch-size 16
+```
+
+See `docs/stage1_evaluation.md` before launching the full 21-checkpoint
+trajectory.
