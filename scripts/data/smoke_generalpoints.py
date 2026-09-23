@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Download and validate the GeneralPoints dataset used by Stage 1.
+"""Download and validate the GeneralPoints data used by Stage 1.
 
-The Hugging Face datasets library downloads data into its cache. This script
-also writes a small local manifest containing only deterministic subset indices
-and metadata; it does not copy the full dataset into Git.
+Stage 1 intentionally uses two official Hugging Face repositories:
+- SFT train: Xiaofeng77/answer-only-gp-l-only-10k
+- Evaluation: Xiaofeng77/gp-l-only-10k
+
+The evaluation repository currently exposes `test` rather than `test_id`.
+This script supports both names, but verifies the actual rule semantics instead
+of trusting the split name.
 """
 
 from __future__ import annotations
@@ -17,14 +21,16 @@ from typing import Any
 
 from datasets import Dataset, get_dataset_split_names, load_dataset
 
-DEFAULT_REPO = "Xiaofeng77/gp-l-only-10k"
-REQUIRED_SPLITS = ("train", "test_id", "test_face_cards_as_regular")
-REQUIRED_COLUMNS = ("data_source", "extra_info", "question")
+DEFAULT_TRAIN_REPO = "Xiaofeng77/answer-only-gp-l-only-10k"
+DEFAULT_EVAL_REPO = "Xiaofeng77/gp-l-only-10k"
+OOD_SPLIT = "test_face_cards_as_regular"
+ID_SPLIT_CANDIDATES = ("test_id", "test")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo-id", default=DEFAULT_REPO)
+    parser.add_argument("--train-repo-id", default=DEFAULT_TRAIN_REPO)
+    parser.add_argument("--eval-repo-id", default=DEFAULT_EVAL_REPO)
     parser.add_argument("--train-size", type=int, default=4096)
     parser.add_argument("--anchor-size", type=int, default=512)
     parser.add_argument("--seed", type=int, default=20260923)
@@ -40,30 +46,19 @@ def fail(message: str) -> None:
     raise RuntimeError(message)
 
 
-def validate_columns(split_name: str, dataset: Dataset) -> None:
-    missing = [name for name in REQUIRED_COLUMNS if name not in dataset.column_names]
-    if missing:
-        fail(
-            f"{split_name}: missing required columns {missing}; "
-            f"found {dataset.column_names}"
-        )
+def prompt_text(question: Any) -> str:
+    if isinstance(question, str):
+        return question
+    if isinstance(question, list) and question:
+        first = question[0]
+        if isinstance(first, dict) and isinstance(first.get("content"), str):
+            return first["content"]
+    return ""
 
 
 def validate_question(example: dict[str, Any], split_name: str) -> None:
-    question = example.get("question")
-    if not isinstance(question, list) or not question:
-        fail(f"{split_name}: expected non-empty chat-message list in 'question'")
-
-    first = question[0]
-    if not isinstance(first, dict) or not isinstance(first.get("content"), str):
-        fail(f"{split_name}: unexpected question message schema: {first!r}")
-
-
-def extract_rule_flag(extra_info: Any) -> bool | None:
-    if not isinstance(extra_info, dict):
-        return None
-    value = extra_info.get("treat_face_cards_as_10")
-    return value if isinstance(value, bool) else None
+    if not prompt_text(example.get("question")).strip():
+        fail(f"{split_name}: unsupported or empty 'question' schema")
 
 
 def validate_extra_info(example: dict[str, Any], split_name: str) -> None:
@@ -73,20 +68,46 @@ def validate_extra_info(example: dict[str, Any], split_name: str) -> None:
 
     cards = extra.get("cards")
     if not isinstance(cards, list) or len(cards) != 4:
-        fail(f"{split_name}: expected exactly four cards in extra_info.cards")
+        fail(f"{split_name}: expected exactly four cards")
 
     target = extra.get("target")
     if target is not None and target != 24:
         fail(f"{split_name}: unexpected target {target!r}; expected 24")
 
 
-def sample_rule_flags(dataset: Dataset, limit: int = 256) -> set[bool]:
-    flags: set[bool] = set()
-    for i in range(min(limit, len(dataset))):
-        value = extract_rule_flag(dataset[i].get("extra_info"))
-        if value is not None:
-            flags.add(value)
-    return flags
+def rule_semantics(example: dict[str, Any]) -> str:
+    """Infer the face-card rule from metadata first, then prompt text."""
+    extra = example.get("extra_info")
+    if isinstance(extra, dict):
+        flag = extra.get("treat_face_cards_as_10")
+        if flag is True:
+            return "all_10"
+        if flag is False:
+            return "regular_11_12_13"
+
+        mapping = extra.get("face_card_mapping")
+        if mapping == "all_10":
+            return "all_10"
+        if mapping == "mixed_11_12_13":
+            return "regular_11_12_13"
+
+    text = prompt_text(example.get("question")).lower()
+    if "count as '10'" in text or 'count as "10"' in text:
+        return "all_10"
+    if (
+        "11" in text
+        and "12" in text
+        and "13" in text
+        and ("respectively" in text or "counts as" in text)
+    ):
+        return "regular_11_12_13"
+    return "unknown"
+
+
+def sample_rule_semantics(dataset: Dataset, limit: int = 128) -> set[str]:
+    values = {rule_semantics(dataset[i]) for i in range(min(limit, len(dataset)))}
+    values.discard("unknown")
+    return values
 
 
 def indices_digest(indices: list[int]) -> str:
@@ -94,35 +115,66 @@ def indices_digest(indices: list[int]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def load_and_basic_check(repo_id: str, split: str) -> Dataset:
+    print(f"Downloading/loading: {repo_id} :: {split}")
+    ds = load_dataset(repo_id, split=split)
+    if len(ds) == 0:
+        fail(f"{repo_id}::{split}: split is empty")
+
+    required = {"data_source", "extra_info", "question"}
+    missing = required.difference(ds.column_names)
+    if missing:
+        fail(
+            f"{repo_id}::{split}: missing required columns {sorted(missing)}; "
+            f"found {ds.column_names}"
+        )
+
+    validate_question(ds[0], split)
+    validate_extra_info(ds[0], split)
+    print(f"  rows={len(ds):,} columns={ds.column_names}")
+    return ds
+
+
 def main() -> int:
     args = parse_args()
 
-    print(f"Repository: {args.repo_id}")
-    split_names = get_dataset_split_names(args.repo_id)
-    print("Available splits:", ", ".join(split_names))
+    print("=== GeneralPoints Stage-1 data smoke test ===")
+    print("SFT train repository:", args.train_repo_id)
+    print("Evaluation repository:", args.eval_repo_id)
 
-    missing_splits = [name for name in REQUIRED_SPLITS if name not in split_names]
-    if missing_splits:
-        fail(f"missing required Stage-1 splits: {missing_splits}")
+    train_splits = get_dataset_split_names(args.train_repo_id)
+    eval_splits = get_dataset_split_names(args.eval_repo_id)
+    print("Train repo splits:", ", ".join(train_splits))
+    print("Eval repo splits:", ", ".join(eval_splits))
 
-    datasets_by_split: dict[str, Dataset] = {}
-    for split_name in REQUIRED_SPLITS:
-        print(f"Downloading/loading split: {split_name}")
-        ds = load_dataset(args.repo_id, split=split_name)
-        datasets_by_split[split_name] = ds
-        validate_columns(split_name, ds)
+    if "train" not in train_splits:
+        fail("SFT train repository does not contain a train split")
+    if OOD_SPLIT not in eval_splits:
+        fail(f"evaluation repository is missing OOD split {OOD_SPLIT!r}")
 
-        if len(ds) == 0:
-            fail(f"{split_name}: split is empty")
-
-        validate_question(ds[0], split_name)
-        validate_extra_info(ds[0], split_name)
-        print(
-            f"  rows={len(ds):,} columns={len(ds.column_names)} "
-            f"schema={ds.column_names}"
+    id_split = next((x for x in ID_SPLIT_CANDIDATES if x in eval_splits), None)
+    if id_split is None:
+        fail(
+            "evaluation repository contains neither 'test_id' nor 'test'; "
+            f"available={eval_splits}"
         )
 
-    train = datasets_by_split["train"]
+    if id_split == "test":
+        print(
+            "NOTE: public eval repo has no 'test_id'; using 'test' as the ID "
+            "candidate and verifying its actual rule semantics."
+        )
+
+    train = load_and_basic_check(args.train_repo_id, "train")
+    id_eval = load_and_basic_check(args.eval_repo_id, id_split)
+    ood_eval = load_and_basic_check(args.eval_repo_id, OOD_SPLIT)
+
+    if "answer" not in train.column_names:
+        fail(
+            "SFT train repository has no 'answer' column. "
+            "Expected the official answer-only SFT dataset."
+        )
+
     required_train_rows = args.train_size + args.anchor_size
     if len(train) < required_train_rows:
         fail(
@@ -130,26 +182,26 @@ def main() -> int:
             f"{required_train_rows}"
         )
 
-    # Check the key rule-shift metadata on a bounded sample. The official
-    # fixed-prompt train/ID data should treat face cards as 10, while the
-    # face-cards-as-regular OOD split should not.
-    train_flags = sample_rule_flags(train)
-    id_flags = sample_rule_flags(datasets_by_split["test_id"])
-    ood_flags = sample_rule_flags(datasets_by_split["test_face_cards_as_regular"])
+    train_rules = sample_rule_semantics(train)
+    id_rules = sample_rule_semantics(id_eval)
+    ood_rules = sample_rule_semantics(ood_eval)
 
-    print("Rule flags:")
-    print("  train:", sorted(train_flags))
-    print("  test_id:", sorted(id_flags))
-    print("  test_face_cards_as_regular:", sorted(ood_flags))
+    print("Detected rule semantics:")
+    print("  SFT train:", sorted(train_rules) or ["unknown"])
+    print(f"  ID eval ({id_split}):", sorted(id_rules) or ["unknown"])
+    print(f"  OOD eval ({OOD_SPLIT}):", sorted(ood_rules) or ["unknown"])
 
-    if train_flags and train_flags != {True}:
-        fail(f"train rule metadata is unexpected: {train_flags}")
-    if id_flags and id_flags != {True}:
-        fail(f"test_id rule metadata is unexpected: {id_flags}")
-    if ood_flags and ood_flags != {False}:
+    if train_rules and train_rules != {"all_10"}:
+        fail(f"SFT train is not consistently J=Q=K=10: {train_rules}")
+    if id_rules != {"all_10"}:
         fail(
-            "test_face_cards_as_regular rule metadata is unexpected: "
-            f"{ood_flags}"
+            f"ID candidate split {id_split!r} did not verify as J=Q=K=10: "
+            f"{id_rules or {'unknown'}}"
+        )
+    if ood_rules != {"regular_11_12_13"}:
+        fail(
+            f"OOD split {OOD_SPLIT!r} did not verify as J=11,Q=12,K=13: "
+            f"{ood_rules or {'unknown'}}"
         )
 
     indices = list(range(len(train)))
@@ -164,14 +216,15 @@ def main() -> int:
 
     args.manifest_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = args.manifest_dir / "manifest.json"
-
     manifest = {
-        "repo_id": args.repo_id,
-        "available_splits": split_names,
-        "required_splits": list(REQUIRED_SPLITS),
-        "split_rows": {
-            name: len(datasets_by_split[name]) for name in REQUIRED_SPLITS
-        },
+        "train_repo_id": args.train_repo_id,
+        "eval_repo_id": args.eval_repo_id,
+        "train_split": "train",
+        "id_eval_split": id_split,
+        "ood_oracle_split": OOD_SPLIT,
+        "train_rows": len(train),
+        "id_eval_rows": len(id_eval),
+        "ood_eval_rows": len(ood_eval),
         "shuffle_seed": args.seed,
         "sft_train_size": args.train_size,
         "anchor_size": args.anchor_size,
@@ -179,10 +232,7 @@ def main() -> int:
         "anchor_indices": anchor_indices,
         "sft_indices_sha256": indices_digest(sft_indices),
         "anchor_indices_sha256": indices_digest(anchor_indices),
-        "id_split": "test_id",
-        "ood_oracle_split": "test_face_cards_as_regular",
     }
-
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -190,8 +240,7 @@ def main() -> int:
 
     print(f"Manifest written to: {manifest_path}")
     print(
-        f"SFT subset: {len(sft_indices)} rows | "
-        f"anchor subset: {len(anchor_indices)} rows | overlap=0"
+        f"SFT subset={len(sft_indices)} | anchor={len(anchor_indices)} | overlap=0"
     )
     print("PASS: GeneralPoints Stage-1 data smoke test succeeded.")
     return 0

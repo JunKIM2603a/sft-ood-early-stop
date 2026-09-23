@@ -18,10 +18,10 @@ adaptation:
   dropout: 0.0
   target_modules: all-linear
   gradient_checkpointing: true
-  note: "r/alpha/all-linear follows the official GeneralPoints PEFT recipe from Lin et al.; dropout=0 is a project choice."
 
 data:
-  source: Xiaofeng77/gp-l-only-10k
+  sft_train_source: Xiaofeng77/answer-only-gp-l-only-10k
+  evaluation_source: Xiaofeng77/gp-l-only-10k
   id_rule: "J=Q=K=10"
   ood_rule: "J=11,Q=12,K=13 (face cards as regular values)"
   train:
@@ -30,32 +30,25 @@ data:
     shuffle_seed: 20260923
     supervision: answer_only
   anchor:
-    source: "same shuffled train split, immediately after the 4096 SFT examples"
+    source: "same shuffled answer-only train split, immediately after the 4096 SFT examples"
     size: 512
     labels_visible_to_selector: false
     disjoint_from_sft_train: true
   id_validation:
-    split: test_id
+    split_preference: [test_id, test]
+    semantic_check: "must verify J=Q=K=10 from metadata/prompt"
     use_full_official_split: true
   ood_oracle:
     split: test_face_cards_as_regular
+    semantic_check: "must verify J=11,Q=12,K=13 from metadata/prompt"
     use_full_official_split: true
     labels_visible_to_selector: false
 
 training:
   objective: autoregressive_cross_entropy
   epochs: 3
-  learning_rates:
-    - 5.0e-6
-    - 1.0e-5
-    - 5.0e-5
-  lr_evidence:
-    center: "1e-5 from official GeneralPoints LoRA/PEFT script"
-    low: "0.5x conservative boundary"
-    high: "5x stronger-update boundary"
-  seeds:
-    - 42
-    - 43
+  learning_rates: [5.0e-6, 1.0e-5, 5.0e-5]
+  seeds: [42, 43]
   max_sequence_length: 2048
   effective_batch_size: 64
   scheduler: cosine
@@ -71,28 +64,16 @@ checkpointing:
   keep_all_stage1_checkpoints: true
 
 metrics:
-  train:
-    - loss
-  id:
-    - validation_loss
-    - task_success_accuracy
-  ood_oracle:
-    - task_success_accuracy
+  train: [loss]
+  id: [validation_loss, task_success_accuracy]
+  ood_oracle: [task_success_accuracy]
   drift:
     - parameter_l2
     - lora_update_frobenius
     - functional_kl
     - singular_value_change
     - singular_vector_principal_angle
-  later_baseline:
-    - crc
-    - oplora_rho_k_optional
-
-functional_kl:
-  anchor_size: 512
-  reference: base_model
-  freeze_token_position_rule_before_running: true
-  freeze_aggregation_rule_before_running: true
+  later_baseline: [crc, oplora_rho_k_optional]
 
 selection:
   oracle:
@@ -136,20 +117,7 @@ boundary_controls:
     learning_rate: 1.0e-6
     epochs: 1
     effective_batch_size: 64
-    note: "Closest-mechanism sentinel using Jin et al.'s full-FT GeneralPoints LR; use ZeRO-3/offload only if needed."
 
 hardware:
   gpus: "2 x RTX 4090 24GB"
   parallelization: "one LR/seed run per GPU"
-
-post_gate_public_confirmation:
-  launch_only_after_stage1_go_or_conditional_go: true
-  train_source: open-r1/OpenR1-Math-220k
-  train_subset_size: 4096
-  id_benchmark:
-    - MATH-500
-  ood_reasoning_benchmarks:
-    - GPQA-Diamond
-    - MMLU-Pro
-  optional_general_ood:
-    - IFEval

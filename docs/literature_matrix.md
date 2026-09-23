@@ -51,7 +51,7 @@ The official GeneralPoints PEFT script in `XiaofengLin7/debunking-sft-generaliza
 - max length 2048
 - a 10k fixed-prompt GeneralPoints training split
 
-The associated `Xiaofeng77/gp-l-only-10k` release exposes a 10k training split and multiple explicit GeneralPoints test splits. The fixed prompt states J/Q/K=10. Official code evaluates ID and rule-shift variants separately.
+The official collection separates roles: `Xiaofeng77/answer-only-gp-l-only-10k` is the non-diverse answer-only **SFT** source, while `Xiaofeng77/gp-l-only-10k` is the RL/evaluation release with the explicit GeneralPoints test variants. The public evaluation repo currently exposes `test` rather than `test_id`; the repository code still contains local `test_id.parquet` references, so our loader verifies the actual rule semantics instead of assuming the split name.
 
 This is the strongest task-specific LR anchor for our **LoRA** pilot. We therefore center the LR sweep on `1e-5` rather than importing Jin's full-FT `1e-6`.
 
@@ -93,7 +93,7 @@ The primary endpoint remains **OOD checkpoint regret**, not correlation.
 
 - Jin et al.: arXiv:2509.12235; official code `jinhangzhan/RL_Heals_SFT`
 - Chu et al.: arXiv:2501.17161 / ICML 2025; official data `tianzhechu/SFTvsRL_Data`
-- Lin et al.: arXiv:2510.00237; official code `XiaofengLin7/debunking-sft-generalization`; GeneralPoints dataset `Xiaofeng77/gp-l-only-10k`
+- Lin et al.: arXiv:2510.00237; official code `XiaofengLin7/debunking-sft-generalization`; SFT data `Xiaofeng77/answer-only-gp-l-only-10k`; evaluation data `Xiaofeng77/gp-l-only-10k`
 - Ren et al.: arXiv:2604.06628; official code `Nebularaid2000/rethink_sft_generalization`
 - Vo & Nguyen: PMLR 337, UAI 2026, paper id `vo26a`
 - Biderman et al.: arXiv:2405.09673 / TMLR 2024

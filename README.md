@@ -41,9 +41,10 @@ Detailed protocol: `docs/stage1_protocol.md`
 
 ### Controlled task
 
-`Xiaofeng77/gp-l-only-10k` GeneralPoints
+GeneralPoints uses separate official repositories for training and evaluation:
 
-- SFT train: deterministic **4,096-example** subset of the official 10k train split
+- SFT train: `Xiaofeng77/answer-only-gp-l-only-10k`, deterministic **4,096-example** subset of its train split
+- ID/OOD evaluation: `Xiaofeng77/gp-l-only-10k`; use `test` as ID only after verifying J=Q=K=10 semantics
 - ID rule: **J=Q=K=10**
 - OOD oracle rule: **J=11, Q=12, K=13**
 - fixed unlabeled functional-KL anchor: **512 prompts** disjoint from SFT train

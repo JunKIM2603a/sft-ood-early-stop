@@ -4,7 +4,7 @@
 
 The project is gated by **phenomenon reproduction**. Proxy development starts only after a predeclared Stage-1 GO or CONDITIONAL GO.
 
-The exact frozen Stage-1 settings live in `docs/stage1_protocol.md` and `configs/pilot.yaml`.
+The exact frozen Stage-1 settings live in `docs/stage1_protocol.md` and `configs/pilot.yaml`. The public Hub currently names the canonical ID evaluation split `test` rather than `test_id`; code must verify its J=Q=K=10 semantics rather than trusting the split name.
 
 ## Stage 1: controlled reproduction
 
@@ -12,7 +12,8 @@ Primary setup:
 
 - `Qwen/Qwen2.5-3B-Instruct`
 - LoRA r=32, alpha=16, all-linear
-- `Xiaofeng77/gp-l-only-10k`
+- SFT train: `Xiaofeng77/answer-only-gp-l-only-10k`
+- ID/OOD evaluation: `Xiaofeng77/gp-l-only-10k`
 - fixed-prompt ID rule: J=Q=K=10
 - OOD oracle rule: J=11,Q=12,K=13
 - 4,096 SFT examples
