@@ -126,3 +126,33 @@ Primary endpoint:
 ```text
 Regret = OOD_oracle - OOD_selected
 ```
+
+
+## Post-pilot interpretability amendment — 2026-09-24
+
+This section was added **after** the first completed condition
+(`LR=1e-5, seed=42`). It is not part of the original predeclared
+peak-to-decline criterion and must not be presented as if it were.
+
+The first run showed:
+
+- large ID validation-loss reduction;
+- near-perfect output parsing / high valid-formula rate;
+- only +3.2 percentage points maximum ID task-accuracy gain;
+- no clear OOD peak-to-decline under the original criterion.
+
+Therefore all remaining runs will report two distinct judgments:
+
+1. **Original predeclared forgetting criterion** — unchanged.
+2. **Acquisition-qualified interpretation** — requires maximum ID task
+   accuracy to improve by at least 5 percentage points over step 0 before a
+   forgetting interpretation is treated as informative.
+
+The 5-point threshold reuses the existing minimum practical effect-size floor.
+It is a post-pilot sanity guard, not a replacement primary endpoint.
+
+A run failing this guard is labeled:
+
+`UNDER_LEARNED_INCONCLUSIVE_FOR_FORGETTING`
+
+rather than being counted as evidence that OOD forgetting is absent.

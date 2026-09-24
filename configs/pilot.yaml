@@ -108,6 +108,14 @@ forgetting_definition:
   min_decline_rule: "max(5 percentage points, 2 * binomial standard error using actual OOD split size)"
   require_no_equally_large_synchronized_id_collapse: true
 
+interpretability_guard:
+  status: post_pilot_amendment
+  added_date: "2026-09-24"
+  reason: "The first 1e-5/seed42 run reduced loss and learned output format but improved ID task accuracy by only 3.2 percentage points."
+  min_id_task_gain: 0.05
+  reporting: "Always report the original predeclared forgetting criterion and the acquisition-qualified interpretation separately."
+  note: "This guard is not retroactively claimed as part of the original predeclared criterion."
+
 stage1_gate:
   go: "At least 2 of 6 LR×seed runs satisfy the predeclared clear peak-to-decline criterion."
   conditional_go: "Only 1 run, only aggressive LR, strong seed dependence, prompt-diversity sensitivity, or dip-to-recovery/non-universal dynamics."
