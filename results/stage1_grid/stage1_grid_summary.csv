@@ -1,0 +1,7 @@
+run_name,learning_rate,seed,status,id_base_accuracy,id_max_accuracy,id_max_step,id_gain,acquisition_pass,ood_peak_step,ood_peak_accuracy,ood_final_accuracy,ood_decline,decline_threshold,later_below_peak,original_clear_peak_to_decline,acquisition_qualified_clear_peak_to_decline
+lr-5e-06_seed-42,5e-06,42,UNDER_LEARNED_INCONCLUSIVE_FOR_FORGETTING,0.0,0.024,170,0.024,False,60,0.024,0.018,0.006000000000000002,0.05,14,False,False
+lr-5e-06_seed-43,5e-06,43,UNDER_LEARNED_INCONCLUSIVE_FOR_FORGETTING,0.0,0.024,160,0.024,False,60,0.026,0.016,0.009999999999999998,0.05,14,False,False
+lr-1e-05_seed-42,1e-05,42,UNDER_LEARNED_INCONCLUSIVE_FOR_FORGETTING,0.0,0.032,80,0.032,False,30,0.026,0.01,0.016,0.05,17,False,False
+lr-1e-05_seed-43,1e-05,43,UNDER_LEARNED_INCONCLUSIVE_FOR_FORGETTING,0.0,0.034,70,0.034,False,30,0.022,0.008,0.013999999999999999,0.05,17,False,False
+lr-5e-05_seed-42,5e-05,42,NO_CLEAR_PEAK_TO_DECLINE,0.0,0.086,110,0.086,True,192,0.066,0.066,0.0,0.05,0,False,False
+lr-5e-05_seed-43,5e-05,43,NO_CLEAR_PEAK_TO_DECLINE,0.0,0.088,192,0.088,True,140,0.07,0.054,0.016000000000000007,0.05,6,False,False

@@ -1,0 +1,10 @@
+{
+  "grid_complete": true,
+  "completed_runs": 6,
+  "missing_runs": [],
+  "original_clear_peak_to_decline_count": 0,
+  "acquisition_qualified_clear_peak_to_decline_count": 0,
+  "acquisition_pass_count": 2,
+  "stage1_lora_gate": "NO_LORA_CLEAR_FORGETTING__RUN_CAPACITY_SENTINEL",
+  "important_note": "If the completed six-run LoRA grid has zero clear forgetting, the frozen protocol requires the full-FT capacity sentinel before a KILL/PIVOT conclusion."
+}

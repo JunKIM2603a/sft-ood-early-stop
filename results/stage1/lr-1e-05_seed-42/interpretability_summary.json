@@ -1,0 +1,29 @@
+{
+  "status": "UNDER_LEARNED_INCONCLUSIVE_FOR_FORGETTING",
+  "post_pilot_acquisition_guard": {
+    "added_after_first_run": true,
+    "not_part_of_original_predeclared_criterion": true,
+    "min_id_gain": 0.05,
+    "base_id_accuracy": 0.0,
+    "max_id_accuracy": 0.032,
+    "max_id_step": 80,
+    "max_id_gain": 0.032,
+    "pass": false
+  },
+  "original_predeclared_forgetting_criterion": {
+    "ood_peak_step": 30,
+    "ood_peak_accuracy": 0.026,
+    "final_ood_accuracy": 0.01,
+    "peak_to_final_decline": 0.016,
+    "later_checkpoints_below_peak": 17,
+    "ood_n_at_peak": 500,
+    "binomial_se_at_peak": 0.007116740827092132,
+    "decline_threshold": 0.05,
+    "id_accuracy_at_ood_peak_step": 0.008,
+    "final_id_accuracy": 0.024,
+    "id_decline_from_ood_peak_step": -0.016,
+    "clear_peak_to_decline": false
+  },
+  "acquisition_qualified_clear_peak_to_decline": false,
+  "metrics_path": "results/stage1/lr-1e-05_seed-42/checkpoint_metrics.jsonl"
+}

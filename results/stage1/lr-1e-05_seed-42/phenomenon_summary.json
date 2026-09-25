@@ -1,0 +1,15 @@
+{
+  "peak_step": 30,
+  "peak_ood_accuracy": 0.026,
+  "final_step": 192,
+  "final_ood_accuracy": 0.01,
+  "peak_to_final_decline": 0.016,
+  "ood_n_at_peak": 500,
+  "binomial_se_at_peak": 0.007116740827092132,
+  "clear_decline_threshold": 0.05,
+  "later_checkpoints_below_peak": 17,
+  "id_accuracy_at_ood_peak_step": 0.008,
+  "final_id_accuracy": 0.024,
+  "id_decline_from_ood_peak_step": -0.016,
+  "clear_peak_to_decline_by_predeclared_rule": false
+}
