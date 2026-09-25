@@ -57,6 +57,11 @@ def parse_args() -> argparse.Namespace:
         help="0 means full split; positive values are engineering smoke only.",
     )
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument(
+        "--raw-root",
+        type=Path,
+        default=RAW_ROOT,
+    )
     parser.add_argument("--overwrite-step", action="store_true")
     return parser.parse_args()
 
@@ -194,25 +199,50 @@ def load_model(
     checkpoint_path: Path,
     device: torch.device,
 ) -> Any:
-    base = AutoModelForCausalLM.from_pretrained(
-        base_model_id,
-        dtype=torch.bfloat16,
-        attn_implementation="sdpa",
-        low_cpu_mem_usage=True,
-    )
-    base.config.use_cache = True
-    base.to(device)
-
     if checkpoint_step == 0:
-        model = base
-    else:
-        if not (checkpoint_path / "adapter_model.safetensors").exists():
-            fail(f"missing adapter weights at {checkpoint_path}")
+        model = AutoModelForCausalLM.from_pretrained(
+            base_model_id,
+            dtype=torch.bfloat16,
+            attn_implementation="sdpa",
+            low_cpu_mem_usage=True,
+        )
+        model.config.use_cache = True
+        model.to(device)
+        model.eval()
+        return model
+
+    adapter_path = checkpoint_path / "adapter_model.safetensors"
+    full_config = checkpoint_path / "config.json"
+
+    if adapter_path.exists():
+        base = AutoModelForCausalLM.from_pretrained(
+            base_model_id,
+            dtype=torch.bfloat16,
+            attn_implementation="sdpa",
+            low_cpu_mem_usage=True,
+        )
+        base.config.use_cache = True
+        base.to(device)
         model = PeftModel.from_pretrained(
             base,
             checkpoint_path,
             is_trainable=False,
         )
+    elif full_config.exists():
+        model = AutoModelForCausalLM.from_pretrained(
+            checkpoint_path,
+            dtype=torch.bfloat16,
+            attn_implementation="sdpa",
+            low_cpu_mem_usage=True,
+        )
+        model.config.use_cache = True
+        model.to(device)
+    else:
+        fail(
+            f"checkpoint is neither a PEFT adapter nor a full HF model: "
+            f"{checkpoint_path}"
+        )
+
     model.eval()
     return model
 
@@ -431,7 +461,7 @@ def main() -> int:
     run_name = args.run_dir.name
 
     output_dir = args.output_root / run_name
-    raw_dir = RAW_ROOT / run_name
+    raw_dir = args.raw_root / run_name
     metrics_jsonl = output_dir / "checkpoint_metrics.jsonl"
     metrics_csv = output_dir / "checkpoint_metrics.csv"
     output_dir.mkdir(parents=True, exist_ok=True)

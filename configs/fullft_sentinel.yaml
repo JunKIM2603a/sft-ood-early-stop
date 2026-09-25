@@ -1,0 +1,40 @@
+experiment:
+  name: fullft_capacity_sentinel
+  role: predeclared_capacity_sentinel
+  added_before_execution: true
+
+model:
+  name_or_path: Qwen/Qwen2.5-3B-Instruct
+  dtype: bf16
+
+data:
+  manifest: data/local/generalpoints_stage1/manifest.json
+  subset_size: 4096
+  max_sequence_length: 2048
+
+training:
+  method: full_finetuning
+  learning_rate: 1.0e-6
+  seed: 42
+  epochs: 1
+  per_device_train_batch_size: 2
+  world_size: 2
+  gradient_accumulation_steps: 16
+  effective_batch_size: 64
+  expected_optimizer_steps: 64
+  scheduler: cosine
+  warmup_steps: 2
+  weight_decay: 0.0
+
+fsdp2:
+  enabled: true
+  reshard_after_forward: true
+  auto_wrap_policy: TRANSFORMER_BASED_WRAP
+  activation_checkpointing: true
+  cpu_offload: false
+  state_dict_type: FULL_STATE_DICT
+
+checkpointing:
+  save_every_optimizer_steps: 10
+  expected_steps: [0, 10, 20, 30, 40, 50, 60, 64]
+  save_only_model: true
