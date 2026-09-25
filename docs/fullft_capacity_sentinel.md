@@ -138,3 +138,38 @@ Possible decisions:
 - `ADAPTATION_CAPACITY_BOUNDARY__CONDITIONAL_GO`
 - `KILL_OR_PIVOT__PHENOMENON_NOT_REPRODUCED`
 - `FULLFT_SENTINEL_UNDER_LEARNED__INCONCLUSIVE`
+
+
+## OOM correction after the first smoke — 2026-09-25
+
+The first FSDP smoke reached forward/backward but failed on the first
+`Adam.step()` while allocating Adam moment tensors. This means the limiting
+factor was optimizer-state memory, not token length or forward activation
+memory.
+
+The retry changes only the systems/memory strategy, not the scientific
+condition:
+
+- explicit Accelerate `distributed_type: FSDP`;
+- explicit `fsdp_version: 2`;
+- transformer-layer wrapping with `Qwen2DecoderLayer`;
+- `reshard_after_forward: true`;
+- CPU offload enabled;
+- per-device batch reduced from 2 to 1;
+- gradient accumulation increased from 16 to 32;
+- global effective batch remains exactly 64;
+- LR, seed, data, epoch count, and optimizer-step count remain unchanged.
+
+The launcher also enables PyTorch expandable CUDA segments to reduce allocator
+fragmentation.
+
+Retry:
+
+```bash
+git pull
+bash scripts/run_fullft_sentinel_2gpu.sh smoke
+```
+
+A successful smoke must print an Accelerate distributed type containing
+`FSDP` before training. If it reports `MULTI_GPU`, stop—the intended
+sharding configuration is not active.

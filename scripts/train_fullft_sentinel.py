@@ -408,18 +408,6 @@ def main() -> int:
         dataloader_drop_last=False,
         dataloader_num_workers=0,
         gradient_checkpointing=False,
-        fsdp=True,
-        fsdp_config={
-            "reshard_after_forward": bool(
-                fsdp_cfg["reshard_after_forward"]
-            ),
-            "auto_wrap_policy": str(fsdp_cfg["auto_wrap_policy"]),
-            "activation_checkpointing": bool(
-                fsdp_cfg["activation_checkpointing"]
-            ),
-            "cpu_offload": bool(fsdp_cfg["cpu_offload"]),
-            "state_dict_type": str(fsdp_cfg["state_dict_type"]),
-        },
     )
 
     trainer = Trainer(
@@ -429,6 +417,25 @@ def main() -> int:
         data_collator=AnswerOnlyCollator(tokenizer.pad_token_id),
         processing_class=tokenizer,
     )
+
+    distributed_type = str(trainer.accelerator.state.distributed_type)
+    if "FSDP" not in distributed_type.upper():
+        fail(
+            "Accelerate did not initialize FSDP. "
+            f"distributed_type={distributed_type}. "
+            "Launch with configs/accelerate_fullft_fsdp2.yaml."
+        )
+
+    if is_main_process():
+        print("Accelerate distributed type:", distributed_type)
+        print(
+            "FSDP2 execution config: version={version}, "
+            "cpu_offload={cpu_offload}, activation_checkpointing={activation}".format(
+                version=fsdp_cfg["version"],
+                cpu_offload=fsdp_cfg["cpu_offload"],
+                activation=fsdp_cfg["activation_checkpointing"],
+            )
+        )
 
     result = trainer.train()
 
