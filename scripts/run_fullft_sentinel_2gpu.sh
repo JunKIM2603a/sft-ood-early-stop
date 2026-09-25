@@ -12,8 +12,15 @@ if ! python -c "import deepspeed" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Accelerate explicitly requires these on RTX 4000-series multi-GPU systems
+# when the process is launched via torchrun rather than accelerate launch.
+export NCCL_P2P_DISABLE=1
+export NCCL_IB_DISABLE=1
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export TOKENIZERS_PARALLELISM=false
+
+echo "NCCL_P2P_DISABLE=${NCCL_P2P_DISABLE}"
+echo "NCCL_IB_DISABLE=${NCCL_IB_DISABLE}"
 
 if [[ "${MODE}" == "smoke" ]]; then
   echo "Launching 2-GPU DeepSpeed ZeRO-3 CPU-offload full-FT smoke test"

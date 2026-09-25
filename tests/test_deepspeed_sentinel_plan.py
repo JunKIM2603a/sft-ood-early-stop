@@ -38,3 +38,13 @@ def test_zero3_explicitly_offloads_optimizer_and_params():
     assert zero["offload_optimizer"]["device"] == "cpu"
     assert zero["offload_param"]["device"] == "cpu"
     assert zero["stage3_gather_16bit_weights_on_model_save"] is True
+
+
+def test_rtx4000_torchrun_disables_nccl_p2p_and_ib():
+    launcher = Path("scripts/run_fullft_sentinel_2gpu.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "export NCCL_P2P_DISABLE=1" in launcher
+    assert "export NCCL_IB_DISABLE=1" in launcher
+    assert "torchrun" in launcher
