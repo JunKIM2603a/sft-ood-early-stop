@@ -5,21 +5,22 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 MODE="${1:-scientific}"
-ACCEL_CONFIG="configs/accelerate_fullft_fsdp2.yaml"
 
-export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-
-if [[ ! -f "${ACCEL_CONFIG}" ]]; then
-  echo "ERROR: missing ${ACCEL_CONFIG}"
+if ! python -c "import deepspeed" >/dev/null 2>&1; then
+  echo "ERROR: DeepSpeed is not installed."
+  echo "Run: bash scripts/setup_deepspeed_fullft.sh"
   exit 1
 fi
 
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export TOKENIZERS_PARALLELISM=false
+
 if [[ "${MODE}" == "smoke" ]]; then
-  echo "Launching 2-GPU explicit FSDP2 + CPU-offload full-FT smoke test"
-  accelerate launch     --config_file "${ACCEL_CONFIG}"     scripts/train_fullft_sentinel.py     --smoke     --overwrite-output
+  echo "Launching 2-GPU DeepSpeed ZeRO-3 CPU-offload full-FT smoke test"
+  torchrun     --standalone     --nproc_per_node=2     scripts/train_fullft_sentinel_zero3.py     --smoke     --overwrite-output
 elif [[ "${MODE}" == "scientific" ]]; then
-  echo "Launching 2-GPU explicit FSDP2 + CPU-offload full-FT capacity sentinel"
-  accelerate launch     --config_file "${ACCEL_CONFIG}"     scripts/train_fullft_sentinel.py
+  echo "Launching 2-GPU DeepSpeed ZeRO-3 CPU-offload capacity sentinel"
+  torchrun     --standalone     --nproc_per_node=2     scripts/train_fullft_sentinel_zero3.py
 else
   echo "Usage: $0 [smoke|scientific]"
   exit 2
