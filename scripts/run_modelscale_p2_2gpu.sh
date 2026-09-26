@@ -8,10 +8,17 @@ MODE="${1:-scientific}"
 CONFIG="configs/modelscale_sentinel_7b_fulltrain.yaml"
 DS_CONFIG="configs/deepspeed_zero3_nvme.json"
 OUTPUT="checkpoints/modelscale_p2/qwen2.5-7b_fulltrain_lr-1e-06_seed-42"
+AIO_ENV="artifacts/env/deepspeed_aio.env"
 
 if ! python -c "import deepspeed" >/dev/null 2>&1; then
   echo "ERROR: DeepSpeed is not installed."
   exit 1
+fi
+
+if [[ -f "${AIO_ENV}" ]]; then
+  echo "Sourcing DeepSpeed AIO environment: ${AIO_ENV}"
+  # shellcheck disable=SC1090
+  source "${AIO_ENV}"
 fi
 
 if [[ ! -f artifacts/audits/p2_7b_preflight.json ]]; then
@@ -35,10 +42,22 @@ COMMON=(
 
 if [[ "${MODE}" == "smoke" ]]; then
   echo "Launching P2 Qwen2.5-7B/full-train ZeRO-Infinity smoke"
-  torchrun     --standalone     --nproc_per_node=2     scripts/train_fullft_sentinel_zero3.py     "${COMMON[@]}"     --smoke     --overwrite-output     --min-free-disk-gib 400
+  torchrun \
+    --standalone \
+    --nproc_per_node=2 \
+    scripts/train_fullft_sentinel_zero3.py \
+    "${COMMON[@]}" \
+    --smoke \
+    --overwrite-output \
+    --min-free-disk-gib 400
 elif [[ "${MODE}" == "scientific" ]]; then
   echo "Launching P2 Qwen2.5-7B/full-train model-scale sentinel"
-  torchrun     --standalone     --nproc_per_node=2     scripts/train_fullft_sentinel_zero3.py     "${COMMON[@]}"     --min-free-disk-gib 400
+  torchrun \
+    --standalone \
+    --nproc_per_node=2 \
+    scripts/train_fullft_sentinel_zero3.py \
+    "${COMMON[@]}" \
+    --min-free-disk-gib 400
 else
   echo "Usage: $0 [smoke|scientific]"
   exit 2

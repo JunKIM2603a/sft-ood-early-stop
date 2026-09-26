@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
 import shutil
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,7 @@ MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 MANIFEST = Path("data/local/generalpoints_exposure_p1/manifest.json")
 AUDIT = Path("artifacts/audits/gp_protocol_alignment.json")
 NVME_DIR = Path("artifacts/deepspeed_nvme/p2_7b")
+AIO_ENV = Path("artifacts/env/deepspeed_aio.env")
 OUTPUT = Path("artifacts/audits/p2_7b_preflight.json")
 
 
@@ -28,6 +31,23 @@ def read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         fail(f"missing required file: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def apply_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not line.startswith("export ") or "=" not in line:
+            fail(f"unsupported environment line in {path}: {raw_line!r}")
+        key, value = line[len("export "):].split("=", 1)
+        parsed = shlex.split(value)
+        if len(parsed) != 1:
+            fail(f"cannot parse environment value for {key} in {path}")
+        os.environ[key] = parsed[0]
 
 
 def meminfo_gib() -> tuple[float, float]:
@@ -77,6 +97,8 @@ def main() -> int:
             f"{ram_total_gib:.1f} GiB < {args.min_total_ram_gib:.1f} GiB"
         )
 
+    apply_env_file(AIO_ENV)
+
     try:
         from deepspeed.ops.op_builder import AsyncIOBuilder
         aio_compatible = bool(AsyncIOBuilder().is_compatible())
@@ -86,7 +108,10 @@ def main() -> int:
     if not aio_compatible:
         fail(
             "DeepSpeed async_io is not compatible on this host. "
-            "NVMe offload requires the libaio-backed async I/O extension."
+            "NVMe offload requires libaio headers/libraries. Run "
+            "'bash scripts/setup_deepspeed_aio.sh', then rerun this preflight. "
+            "For a system-wide Ubuntu install, DeepSpeed documents "
+            "'sudo apt-get install -y libaio-dev'."
         )
 
     dataset = load_dataset(
@@ -142,6 +167,7 @@ def main() -> int:
         "host_ram_total_gib": ram_total_gib,
         "host_ram_available_gib": ram_available_gib,
         "deepspeed_async_io_compatible": aio_compatible,
+        "aio_env_file": str(AIO_ENV) if AIO_ENV.exists() else None,
         "nvme_path": str(NVME_DIR.resolve()),
         "protocol_alignment_status": protocol.get("status"),
         "protocol_alignment_note": protocol.get("scientific_implication"),
@@ -157,9 +183,13 @@ def main() -> int:
     print("Status: PASS")
     print("Train rows:", len(dataset))
     print("7B tokenizer max tokens:", max_tokens)
-    print(f"Host RAM: total={ram_total_gib:.1f} GiB available={ram_available_gib:.1f} GiB")
+    print(
+        f"Host RAM: total={ram_total_gib:.1f} GiB "
+        f"available={ram_available_gib:.1f} GiB"
+    )
     print(f"NVMe/filesystem free: {disk_free_gib:.1f} GiB")
     print("DeepSpeed async_io compatible:", aio_compatible)
+    print("AIO env file:", report["aio_env_file"])
     print("Protocol alignment:", protocol.get("status"))
     print("Wrote:", OUTPUT)
     return 0
