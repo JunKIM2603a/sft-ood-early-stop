@@ -1,0 +1,59 @@
+experiment:
+  name: p1_exposure_boundary_qwen3b_fulltrain
+  stage: P1
+  role: post_reproduction_boundary_pivot
+  status: frozen_before_execution
+  frozen_date: "2026-09-26"
+  question: "Does increasing SFT exposure alone reveal OOD forgetting at fixed 3B model scale?"
+
+model:
+  name_or_path: Qwen/Qwen2.5-3B-Instruct
+  dtype: bf16
+
+data:
+  manifest: data/local/generalpoints_exposure_p1/manifest.json
+  selection: full_train
+  expected_min_examples: 9000
+  expected_max_examples: 11000
+  max_sequence_length: 2048
+  note: "Exact row count is frozen by the P1 manifest at preflight; do not assume the marketing name '10k' is exact."
+
+training:
+  method: full_finetuning
+  learning_rate: 1.0e-6
+  seed: 42
+  epochs: 1
+  per_device_train_batch_size: 1
+  world_size: 2
+  gradient_accumulation_steps: 32
+  effective_batch_size: 64
+  expected_optimizer_steps: auto
+  scheduler: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  backend: deepspeed_zero3_cpu_offload
+
+checkpointing:
+  save_every_optimizer_steps: 10
+  save_only_model: true
+
+evaluation:
+  id_task_metric: task_success_accuracy
+  ood_metric: task_success_accuracy
+  id_validation_loss: disabled_due_to_training_overlap
+  functional_drift: disabled_until_reproduction_gate_reopens
+
+criterion:
+  acquisition_guard:
+    min_id_gain: 0.05
+    status: post_pilot_guard
+  clear_forgetting:
+    peak_must_be_non_final: true
+    later_checkpoints_below_peak_min_count: 2
+    min_decline_rule: "max(5 percentage points, 2 * binomial standard error using actual OOD split size)"
+    require_no_equally_large_synchronized_id_collapse: true
+
+decision:
+  if_clear_forgetting: "EXPOSURE_BOUNDARY_CANDIDATE__REPLICATE_SEED43"
+  if_acquired_but_no_clear_forgetting: "P2_MODEL_SCALE_SENTINEL_7B"
+  if_under_learned: "P2_MODEL_SCALE_SENTINEL_7B"

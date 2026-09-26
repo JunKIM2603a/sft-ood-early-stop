@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import shutil
@@ -315,20 +316,46 @@ def main() -> int:
     ckpt_cfg = cfg["checkpointing"]
 
     manifest = read_json(Path(data_cfg["manifest"]))
-    sft_indices = list(manifest["sft_indices"])
-    if len(sft_indices) != int(data_cfg["subset_size"]):
-        fail("manifest SFT population does not match sentinel config")
+    selection = str(data_cfg.get("selection", "frozen_indices"))
+
+    if selection == "full_train":
+        if manifest.get("selection") != "full_train":
+            fail(
+                "P1 config requests full_train, but its manifest is not "
+                "frozen as full_train"
+            )
+        source_size = int(manifest["train_num_rows"])
+        min_examples = int(data_cfg.get("expected_min_examples", 1))
+        max_examples = int(data_cfg.get("expected_max_examples", 10**12))
+        if not (min_examples <= source_size <= max_examples):
+            fail(
+                f"full-train manifest size={source_size} is outside "
+                f"{min_examples}..{max_examples}"
+            )
+        scientific_indices = list(range(source_size))
+    elif selection == "frozen_indices":
+        scientific_indices = list(manifest["sft_indices"])
+        expected_subset = int(data_cfg["subset_size"])
+        if len(scientific_indices) != expected_subset:
+            fail("manifest SFT population does not match sentinel config")
+        source_size = len(scientific_indices)
+    else:
+        fail(f"unsupported data selection mode: {selection}")
 
     if args.smoke:
-        selected_indices = sft_indices[:128]
+        selected_indices = scientific_indices[:128]
         epochs = 1.0
         max_steps = 2
         save_strategy = "no"
         save_steps = 500
-        output_dir = Path("artifacts/smoke/fullft_zero3")
+        output_dir = (
+            Path("artifacts/smoke/exposure_p1_zero3")
+            if selection == "full_train"
+            else Path("artifacts/smoke/fullft_zero3")
+        )
         minimum_disk = 2.0
     else:
-        selected_indices = sft_indices
+        selected_indices = scientific_indices
         epochs = float(train_cfg["epochs"])
         max_steps = -1
         save_strategy = "steps"
@@ -359,10 +386,30 @@ def main() -> int:
             fail("tokenizer has neither pad nor EOS token")
         tokenizer.pad_token = tokenizer.eos_token
 
-    dataset = load_dataset(
+    source_dataset = load_dataset(
         manifest["train_repo_id"],
         split=manifest.get("train_split", "train"),
-    ).select(selected_indices)
+    )
+
+    if selection == "full_train":
+        if len(source_dataset) != source_size:
+            fail(
+                f"dataset row count changed: manifest={source_size}, "
+                f"current={len(source_dataset)}"
+            )
+        frozen_fingerprint = manifest.get("dataset_fingerprint")
+        current_fingerprint = getattr(source_dataset, "_fingerprint", None)
+        if (
+            frozen_fingerprint
+            and current_fingerprint
+            and current_fingerprint != frozen_fingerprint
+        ):
+            fail(
+                "dataset fingerprint changed after P1 preflight: "
+                f"manifest={frozen_fingerprint}, current={current_fingerprint}"
+            )
+
+    dataset = source_dataset.select(selected_indices)
 
     max_length = int(data_cfg["max_sequence_length"])
     encoded_rows = [
@@ -376,7 +423,12 @@ def main() -> int:
     ]
 
     if is_main_process():
-        print("=== Full-FT DeepSpeed ZeRO-3 capacity sentinel ===")
+        run_label = (
+            "P1 exposure-boundary"
+            if selection == "full_train"
+            else "capacity sentinel"
+        )
+        print(f"=== Full-FT DeepSpeed ZeRO-3 {run_label} ===")
         print("Mode:", "SMOKE" if args.smoke else "SCIENTIFIC")
         print("DeepSpeed:", deepspeed.__version__)
         print("Model:", model_id)
@@ -410,17 +462,33 @@ def main() -> int:
             f"{grad_accum} = {actual_effective}, expected {expected_effective}"
         )
 
+    expected_final_step: int | None = None
     if not args.smoke:
         derived_steps = (
-            len(encoded_rows)
-            // expected_effective
+            math.ceil(len(encoded_rows) / expected_effective)
             * int(train_cfg["epochs"])
         )
-        if derived_steps != int(train_cfg["expected_optimizer_steps"]):
-            fail(
-                f"optimizer step mismatch: derived={derived_steps}, "
-                f"expected={train_cfg['expected_optimizer_steps']}"
-            )
+        configured_steps = train_cfg.get("expected_optimizer_steps", "auto")
+        if str(configured_steps).lower() == "auto":
+            expected_final_step = derived_steps
+        else:
+            expected_final_step = int(configured_steps)
+            if derived_steps != expected_final_step:
+                fail(
+                    f"optimizer step mismatch: derived={derived_steps}, "
+                    f"expected={expected_final_step}"
+                )
+
+    if args.smoke:
+        warmup_steps = 0
+    elif "warmup_ratio" in train_cfg:
+        if expected_final_step is None:
+            fail("expected final step was not derived")
+        warmup_steps = math.ceil(
+            expected_final_step * float(train_cfg["warmup_ratio"])
+        )
+    else:
+        warmup_steps = int(train_cfg["warmup_steps"])
 
     training_args = TrainingArguments(
         output_dir=str(output_dir),
@@ -432,7 +500,7 @@ def main() -> int:
         num_train_epochs=epochs,
         max_steps=max_steps,
         lr_scheduler_type=str(train_cfg["scheduler"]),
-        warmup_steps=(0 if args.smoke else int(train_cfg["warmup_steps"])),
+        warmup_steps=warmup_steps,
         bf16=True,
         seed=seed,
         data_seed=seed,
@@ -473,7 +541,9 @@ def main() -> int:
 
     if not args.smoke:
         final_step = int(trainer.state.global_step)
-        expected_final = int(train_cfg["expected_optimizer_steps"])
+        if expected_final_step is None:
+            fail("expected final step is missing")
+        expected_final = expected_final_step
         if final_step != expected_final:
             fail(
                 f"sentinel ended at step {final_step}; "
@@ -506,6 +576,10 @@ def main() -> int:
             "learning_rate": float(train_cfg["learning_rate"]),
             "seed": seed,
             "examples": len(encoded_rows),
+            "scientific_source_examples": source_size,
+            "data_selection": selection,
+            "dataset_fingerprint": manifest.get("dataset_fingerprint"),
+            "train_content_sha256": manifest.get("train_content_sha256"),
             "global_step": int(trainer.state.global_step),
             "train_loss": float(result.training_loss),
             "rank0_peak_allocated_gib": peak_gib,
@@ -523,9 +597,14 @@ def main() -> int:
         )
         tokenizer.save_pretrained(output_dir / "tokenizer")
         print(json.dumps(summary, indent=2))
+        label = (
+            "exposure P1"
+            if selection == "full_train"
+            else "capacity sentinel"
+        )
         print(
             "PASS: full-FT DeepSpeed ZeRO-3 "
-            + ("smoke" if args.smoke else "capacity sentinel")
+            + ("smoke" if args.smoke else label)
             + " completed."
         )
 

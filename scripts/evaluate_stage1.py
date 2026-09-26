@@ -49,6 +49,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--eval-batch-size", type=int, default=32)
     parser.add_argument("--loss-batch-size", type=int, default=16)
+    parser.add_argument(
+        "--skip-id-validation-loss",
+        action="store_true",
+        help=(
+            "Do not compute ID validation loss. Required when the evaluation "
+            "manifest intentionally trains on the former ID-loss holdout."
+        ),
+    )
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument(
         "--max-examples",
@@ -446,11 +454,14 @@ def main() -> int:
 
     config = read_yaml(args.config)
     manifest = read_json(args.manifest)
-    if "id_validation_indices" not in manifest:
+    if (
+        not args.skip_id_validation_loss
+        and "id_validation_indices" not in manifest
+    ):
         fail(
-            "manifest predates the frozen ID-loss validation set. Rerun "
-            "python scripts/data/smoke_generalpoints.py; the script preserves "
-            "the existing SFT/anchor indices."
+            "manifest has no ID-loss validation set. Use "
+            "--skip-id-validation-loss only when overlap is intentional, "
+            "such as the P1 full-train exposure pivot."
         )
 
     if not args.run_dir.exists():
@@ -469,13 +480,16 @@ def main() -> int:
     existing = read_existing_metrics(metrics_jsonl)
     existing_by_step = {int(row["optimizer_step"]): row for row in existing}
 
-    train = load_dataset(
-        manifest["train_repo_id"],
-        split=manifest.get("train_split", "train"),
-    )
-    id_validation = train.select(manifest["id_validation_indices"])
-    if "answer" not in id_validation.column_names:
-        fail("ID validation data lacks answer labels")
+    if args.skip_id_validation_loss:
+        id_validation = None
+    else:
+        train = load_dataset(
+            manifest["train_repo_id"],
+            split=manifest.get("train_split", "train"),
+        )
+        id_validation = train.select(manifest["id_validation_indices"])
+        if "answer" not in id_validation.column_names:
+            fail("ID validation data lacks answer labels")
 
     evaluation = load_dataset(manifest["eval_repo_id"])
     id_split_name = manifest["id_eval_split"]
@@ -516,8 +530,13 @@ def main() -> int:
     print("Run:", run_name)
     print("GPU:", torch.cuda.get_device_name(device))
     print("Steps:", steps)
+    id_loss_status = (
+        "SKIPPED"
+        if id_validation is None
+        else str(len(id_validation))
+    )
     print(
-        f"ID-loss validation={len(id_validation)} | "
+        f"ID-loss validation={id_loss_status} | "
         f"ID task={len(id_task)} ({id_split_name}) | "
         f"OOD task={len(ood_task)} ({ood_split_name})"
     )
@@ -544,14 +563,17 @@ def main() -> int:
             device,
         )
 
-        id_loss = compute_id_validation_loss(
-            model,
-            tokenizer,
-            id_validation,
-            batch_size=args.loss_batch_size,
-            max_length=max_length,
-            device=device,
-        )
+        if id_validation is None:
+            id_loss = None
+        else:
+            id_loss = compute_id_validation_loss(
+                model,
+                tokenizer,
+                id_validation,
+                batch_size=args.loss_batch_size,
+                max_length=max_length,
+                device=device,
+            )
 
         id_raw = raw_dir / f"step-{step:06d}_id.jsonl"
         ood_raw = raw_dir / f"step-{step:06d}_ood.jsonl"
@@ -593,8 +615,11 @@ def main() -> int:
         rows.append(row)
         write_metrics(metrics_jsonl, metrics_csv, rows)
 
+        id_loss_text = (
+            "SKIPPED" if id_loss is None else f"{id_loss:.6f}"
+        )
         print(
-            f"step={step} ID_loss={id_loss:.6f} "
+            f"step={step} ID_loss={id_loss_text} "
             f"ID_acc={id_metrics['accuracy']:.4f} "
             f"OOD_acc={ood_metrics['accuracy']:.4f}"
         )
