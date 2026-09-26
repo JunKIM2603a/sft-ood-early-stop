@@ -305,10 +305,19 @@ def main() -> int:
     zero = ds_cfg.get("zero_optimization", {})
     if int(zero.get("stage", -1)) != 3:
         fail("DeepSpeed config must use ZeRO stage 3")
-    if zero.get("offload_optimizer", {}).get("device") != "cpu":
-        fail("optimizer offload must be explicitly set to CPU")
-    if zero.get("offload_param", {}).get("device") != "cpu":
-        fail("parameter offload must be explicitly set to CPU")
+    optimizer_offload = zero.get("offload_optimizer", {}).get("device")
+    parameter_offload = zero.get("offload_param", {}).get("device")
+    allowed_offload = {"cpu", "nvme"}
+    if optimizer_offload not in allowed_offload:
+        fail(
+            "optimizer offload must be explicitly set to CPU or NVMe; "
+            f"got {optimizer_offload!r}"
+        )
+    if parameter_offload not in allowed_offload:
+        fail(
+            "parameter offload must be explicitly set to CPU or NVMe; "
+            f"got {parameter_offload!r}"
+        )
 
     model_id = cfg["model"]["name_or_path"]
     data_cfg = cfg["data"]
@@ -348,11 +357,14 @@ def main() -> int:
         max_steps = 2
         save_strategy = "no"
         save_steps = 500
-        output_dir = (
-            Path("artifacts/smoke/exposure_p1_zero3")
-            if selection == "full_train"
-            else Path("artifacts/smoke/fullft_zero3")
+        experiment_name = str(
+            cfg.get("experiment", {}).get("name", "fullft_zero3")
         )
+        safe_experiment_name = "".join(
+            ch if ch.isalnum() or ch in {"-", "_"} else "-"
+            for ch in experiment_name
+        )
+        output_dir = Path("artifacts/smoke") / safe_experiment_name
         minimum_disk = 2.0
     else:
         selected_indices = scientific_indices
@@ -423,10 +435,10 @@ def main() -> int:
     ]
 
     if is_main_process():
-        run_label = (
-            "P1 exposure-boundary"
-            if selection == "full_train"
-            else "capacity sentinel"
+        run_label = str(
+            cfg.get("experiment", {}).get("stage")
+            or cfg.get("experiment", {}).get("role")
+            or "capacity sentinel"
         )
         print(f"=== Full-FT DeepSpeed ZeRO-3 {run_label} ===")
         print("Mode:", "SMOKE" if args.smoke else "SCIENTIFIC")
@@ -438,18 +450,8 @@ def main() -> int:
             max(len(row["input_ids"]) for row in encoded_rows),
         )
         print("ZeRO stage: 3")
-        print("Optimizer offload: CPU")
-        print("Parameter offload: CPU")
-
-    # With Transformers DeepSpeed integration, the ZeRO-3 config is known by
-    # TrainingArguments before Trainer wraps the model.
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        dtype=torch.bfloat16,
-        attn_implementation="sdpa",
-        low_cpu_mem_usage=True,
-    )
-    model.config.use_cache = False
+        print("Optimizer offload:", str(optimizer_offload).upper())
+        print("Parameter offload:", str(parameter_offload).upper())
 
     per_device = int(train_cfg["per_device_train_batch_size"])
     grad_accum = int(train_cfg["gradient_accumulation_steps"])
@@ -490,6 +492,9 @@ def main() -> int:
     else:
         warmup_steps = int(train_cfg["warmup_steps"])
 
+    # Construct TrainingArguments before loading the model. Transformers uses
+    # the DeepSpeed configuration registered here to enable ZeRO-3-aware model
+    # initialization during from_pretrained.
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         do_train=True,
@@ -519,6 +524,14 @@ def main() -> int:
         gradient_checkpointing_kwargs={"use_reentrant": False},
         deepspeed=str(args.deepspeed_config),
     )
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        dtype=torch.bfloat16,
+        attn_implementation="sdpa",
+        low_cpu_mem_usage=True,
+    )
+    model.config.use_cache = False
 
     trainer = Trainer(
         model=model,
@@ -570,7 +583,11 @@ def main() -> int:
         summary = {
             "status": "PASS" if args.smoke else "COMPLETED",
             "mode": "SMOKE" if args.smoke else "SCIENTIFIC",
-            "backend": "DeepSpeed ZeRO-3 CPU offload",
+            "backend": (
+                "DeepSpeed ZeRO-3 "
+                f"optimizer={optimizer_offload} "
+                f"param={parameter_offload}"
+            ),
             "deepspeed_version": deepspeed.__version__,
             "model_id": model_id,
             "learning_rate": float(train_cfg["learning_rate"]),
@@ -597,10 +614,10 @@ def main() -> int:
         )
         tokenizer.save_pretrained(output_dir / "tokenizer")
         print(json.dumps(summary, indent=2))
-        label = (
-            "exposure P1"
-            if selection == "full_train"
-            else "capacity sentinel"
+        label = str(
+            cfg.get("experiment", {}).get("stage")
+            or cfg.get("experiment", {}).get("role")
+            or "capacity sentinel"
         )
         print(
             "PASS: full-FT DeepSpeed ZeRO-3 "

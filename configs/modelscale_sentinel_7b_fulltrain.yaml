@@ -1,0 +1,61 @@
+experiment:
+  name: p2_modelscale_qwen7b_fulltrain
+  stage: P2
+  role: model_scale_boundary_sentinel
+  status: frozen_before_execution
+  frozen_date: "2026-09-27"
+  question: "At fixed full-train exposure, does increasing model scale from 3B to 7B reveal clear OOD forgetting?"
+
+model:
+  name_or_path: Qwen/Qwen2.5-7B-Instruct
+  dtype: bf16
+
+data:
+  manifest: data/local/generalpoints_exposure_p1/manifest.json
+  selection: full_train
+  expected_min_examples: 9000
+  expected_max_examples: 11000
+  max_sequence_length: 2048
+  note: "Reuse the exact P1 frozen full-train manifest so model scale is the only intended scientific change."
+
+training:
+  method: full_finetuning
+  learning_rate: 1.0e-6
+  seed: 42
+  epochs: 1
+  per_device_train_batch_size: 1
+  world_size: 2
+  gradient_accumulation_steps: 32
+  effective_batch_size: 64
+  expected_optimizer_steps: auto
+  scheduler: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  backend: deepspeed_zero3_nvme_offload
+
+checkpointing:
+  save_every_optimizer_steps: 10
+  save_only_model: true
+
+evaluation:
+  id_task_metric: task_success_accuracy
+  ood_metric: task_success_accuracy
+  id_validation_loss: disabled_due_to_training_overlap
+  functional_drift: disabled_until_reproduction_gate_reopens
+  eval_batch_size: 16
+  loss_batch_size: 8
+
+criterion:
+  acquisition_guard:
+    min_id_gain: 0.05
+    status: post_pilot_guard
+  clear_forgetting:
+    peak_must_be_non_final: true
+    later_checkpoints_below_peak_min_count: 2
+    min_decline_rule: "max(5 percentage points, 2 * binomial standard error using actual OOD split size)"
+    require_no_equally_large_synchronized_id_collapse: true
+
+decision:
+  if_clear_forgetting: "MODEL_SCALE_BOUNDARY_CANDIDATE__REPLICATE_SEED43"
+  if_acquired_but_no_clear_forgetting: "NEAR_OFFICIAL_RECIPE_NEGATIVE__PROTOCOL_ALIGNMENT_CONTROL"
+  if_under_learned: "7B_UNDER_LEARNED__PROTOCOL_ALIGNMENT_CONTROL"
