@@ -1,0 +1,5 @@
+optimizer_step,id_validation_loss,id_task_accuracy,ood_task_accuracy,id_parse_rate,ood_parse_rate,id_valid_formula_rate,ood_valid_formula_rate,id_task_n,ood_task_n,evaluation_mode
+10,0.35917687527942727,0.014,0.016,1.0,1.0,0.944,0.912,500,500,FULL
+30,0.17081218580540902,0.034,0.012,1.0,1.0,0.952,0.91,500,500,FULL
+50,0.15633423875437605,0.038,0.022,1.0,1.0,0.984,0.944,500,500,FULL
+64,0.15513967965818104,0.042,0.032,1.0,1.0,0.986,0.94,500,500,FULL

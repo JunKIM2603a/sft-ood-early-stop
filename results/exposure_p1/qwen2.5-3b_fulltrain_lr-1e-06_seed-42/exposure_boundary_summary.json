@@ -1,0 +1,59 @@
+{
+  "stage": "P1_EXPOSURE_BOUNDARY",
+  "decision": "P2_MODEL_SCALE_SENTINEL_7B",
+  "acquisition": {
+    "base_id_accuracy": 0.0,
+    "max_id_accuracy": 0.1,
+    "max_id_step": 60,
+    "id_gain": 0.1,
+    "threshold": 0.05,
+    "pass": true
+  },
+  "forgetting": {
+    "ood_peak_step": 80,
+    "ood_peak_accuracy": 0.116,
+    "final_ood_accuracy": 0.098,
+    "peak_to_final_decline": 0.018000000000000002,
+    "later_checkpoints_below_peak": 8,
+    "binomial_se_at_peak": 0.014320893826853127,
+    "decline_threshold": 0.05,
+    "id_accuracy_at_ood_peak_step": 0.1,
+    "final_id_accuracy": 0.084,
+    "id_decline_from_ood_peak_step": 0.016,
+    "clear_peak_to_decline": false
+  },
+  "comparison_to_4k_fullft": {
+    "decision": "KILL_OR_PIVOT__PHENOMENON_NOT_REPRODUCED",
+    "acquisition": {
+      "base_id_accuracy": 0.0,
+      "max_id_accuracy": 0.05,
+      "max_id_step": 20,
+      "id_gain": 0.05,
+      "threshold": 0.05,
+      "pass": true
+    },
+    "forgetting": {
+      "ood_peak_step": 60,
+      "ood_peak_accuracy": 0.032,
+      "final_ood_accuracy": 0.032,
+      "peak_to_final_decline": 0.0,
+      "later_checkpoints_below_peak": 0,
+      "binomial_se_at_peak": 0.007870959280799261,
+      "decline_threshold": 0.05,
+      "id_accuracy_at_ood_peak_step": 0.048,
+      "final_id_accuracy": 0.042,
+      "id_decline_from_ood_peak_step": 0.005999999999999998,
+      "clear_peak_to_decline": false
+    },
+    "interpretation": {
+      "lora_grid_clear_forgetting_count": 0,
+      "if_fullft_clear_and_acquired": "LoRA likely suppresses or shifts the target forgetting trajectory in this resource-adapted regime.",
+      "if_fullft_not_clear_and_acquired": "Target phenomenon was not reproduced under either LoRA or the predeclared full-FT sentinel; proceed to KILL/PIVOT analysis rather than drift-selector development."
+    }
+  },
+  "interpretation": {
+    "if_clear": "Exposure is a candidate boundary condition. Replicate the same full-train condition with seed 43 before reopening drift-selector development.",
+    "if_not_clear": "Increasing exposure at fixed 3B scale did not recover the target trajectory. Proceed to the preplanned 7B model-scale sentinel rather than developing drift proxies.",
+    "id_validation_loss_note": "Disabled by design because full-train exposure consumes the former ID-loss holdout."
+  }
+}
