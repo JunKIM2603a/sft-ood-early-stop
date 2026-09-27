@@ -72,20 +72,47 @@ mkdir -p "${PKG_DIR}" "${EXTRACT_DIR}"
 
 pushd "${PKG_DIR}" >/dev/null
 
+download_ubuntu_pool_package() {
+  local filename="$1"
+  local mirrors=(
+    "https://pl.archive.ubuntu.com/ubuntu"
+    "https://us.archive.ubuntu.com/ubuntu"
+    "https://archive.ubuntu.com/ubuntu"
+    "https://old-releases.ubuntu.com/ubuntu"
+  )
+
+  for mirror in "${mirrors[@]}"; do
+    local url="${mirror}/pool/main/liba/libaio/${filename}"
+    echo "Trying Ubuntu mirror: ${url}"
+
+    if command -v curl >/dev/null 2>&1; then
+      if curl -fL --retry 2 --retry-delay 1 -o "${filename}" "${url}"; then
+        echo "Downloaded ${filename} from ${mirror}"
+        return 0
+      fi
+    elif command -v wget >/dev/null 2>&1; then
+      if wget -O "${filename}" "${url}"; then
+        echo "Downloaded ${filename} from ${mirror}"
+        return 0
+      fi
+    else
+      echo "ERROR: curl or wget is required for Ubuntu mirror fallback."
+      return 1
+    fi
+
+    rm -f "${filename}"
+  done
+
+  echo "ERROR: failed to download ${filename} from all Ubuntu mirrors."
+  return 1
+}
+
 if ! apt-get download libaio-dev; then
-  echo "WARN: configured APT mirror failed for libaio-dev; using archive.ubuntu.com."
+  echo "WARN: configured APT mirror failed for libaio-dev; trying Ubuntu archive mirrors."
   DEV_VERSION="$(apt-cache policy libaio-dev | awk '/Candidate:/ {print $2; exit}')"
   ARCH="$(dpkg --print-architecture)"
   DEV_FILE="libaio-dev_${DEV_VERSION}_${ARCH}.deb"
-  DEV_URL="https://archive.ubuntu.com/ubuntu/pool/main/liba/libaio/${DEV_FILE}"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 --retry-delay 2 -o "${DEV_FILE}" "${DEV_URL}"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -O "${DEV_FILE}" "${DEV_URL}"
-  else
-    echo "ERROR: curl or wget is required for the Ubuntu archive fallback."
-    exit 1
-  fi
+  download_ubuntu_pool_package "${DEV_FILE}"
 fi
 
 RUNTIME_PKG="$(
@@ -96,19 +123,11 @@ RUNTIME_PKG="$(
 if [[ -n "${RUNTIME_PKG}" ]]; then
   echo "Detected libaio runtime dependency: ${RUNTIME_PKG}"
   if ! apt-get download "${RUNTIME_PKG}"; then
-    echo "WARN: configured APT mirror failed for ${RUNTIME_PKG}; using archive.ubuntu.com."
+    echo "WARN: configured APT mirror failed for ${RUNTIME_PKG}; trying Ubuntu archive mirrors."
     RUNTIME_VERSION="$(apt-cache policy "${RUNTIME_PKG}" | awk '/Candidate:/ {print $2; exit}')"
     ARCH="$(dpkg --print-architecture)"
     RUNTIME_FILE="${RUNTIME_PKG}_${RUNTIME_VERSION}_${ARCH}.deb"
-    RUNTIME_URL="https://archive.ubuntu.com/ubuntu/pool/main/liba/libaio/${RUNTIME_FILE}"
-    if command -v curl >/dev/null 2>&1; then
-      curl -fL --retry 3 --retry-delay 2 -o "${RUNTIME_FILE}" "${RUNTIME_URL}"
-    elif command -v wget >/dev/null 2>&1; then
-      wget -O "${RUNTIME_FILE}" "${RUNTIME_URL}"
-    else
-      echo "ERROR: curl or wget is required for the Ubuntu archive fallback."
-      exit 1
-    fi
+    download_ubuntu_pool_package "${RUNTIME_FILE}"
   fi
 else
   echo "WARN: could not resolve libaio runtime dependency from apt-cache."
