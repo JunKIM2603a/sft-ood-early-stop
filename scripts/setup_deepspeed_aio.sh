@@ -35,6 +35,47 @@ EOF_ENV
   source "${ENV_FILE}"
 }
 
+package_candidate_version() {
+  local package="$1"
+  local version
+
+  version="$(
+    LC_ALL=C apt-cache policy "${package}"       | awk '/Candidate:/ {print $2; exit}'
+  )"
+
+  if [[ -z "${version}" || "${version}" == "(none)" ]]; then
+    version="$(
+      LC_ALL=C apt-cache show "${package}" 2>/dev/null         | awk '/^Version:/ {print $2; exit}'
+    )"
+  fi
+
+  if [[ -z "${version}" ]]; then
+    echo "ERROR: could not resolve a version for ${package} from apt metadata." >&2
+    return 1
+  fi
+
+  printf '%s\n' "${version}"
+}
+
+runtime_package_name() {
+  local package="$1"
+  local runtime
+
+  runtime="$(
+    LC_ALL=C apt-cache depends "${package}"       | awk '/Depends: libaio/ {gsub(/[<>]/, "", $2); print $2; exit}'
+  )"
+
+  if [[ -z "${runtime}" ]]; then
+    if LC_ALL=C apt-cache show libaio1 >/dev/null 2>&1; then
+      runtime="libaio1"
+    elif LC_ALL=C apt-cache show libaio1t64 >/dev/null 2>&1; then
+      runtime="libaio1t64"
+    fi
+  fi
+
+  printf '%s\n' "${runtime}"
+}
+
 echo "=== DeepSpeed async_io / libaio setup ==="
 
 if check_aio; then
@@ -59,7 +100,7 @@ fi
 
 echo "No passwordless sudo. Using user-local Debian package extraction."
 
-for cmd in apt-get apt-cache dpkg-deb; do
+for cmd in apt-get apt-cache dpkg-deb dpkg; do
   if ! command -v "${cmd}" >/dev/null 2>&1; then
     echo "ERROR: ${cmd} is required for the non-root libaio setup."
     echo "Administrator fallback: sudo apt-get install -y libaio-dev"
@@ -75,6 +116,7 @@ pushd "${PKG_DIR}" >/dev/null
 download_ubuntu_pool_package() {
   local filename="$1"
   local mirrors=(
+    "https://kr.archive.ubuntu.com/ubuntu"
     "https://pl.archive.ubuntu.com/ubuntu"
     "https://us.archive.ubuntu.com/ubuntu"
     "https://archive.ubuntu.com/ubuntu"
@@ -109,34 +151,34 @@ download_ubuntu_pool_package() {
 
 if ! apt-get download libaio-dev; then
   echo "WARN: configured APT mirror failed for libaio-dev; trying Ubuntu archive mirrors."
-  DEV_VERSION="$(apt-cache policy libaio-dev | awk '/Candidate:/ {print $2; exit}')"
+  DEV_VERSION="$(package_candidate_version libaio-dev)"
   ARCH="$(dpkg --print-architecture)"
   DEV_FILE="libaio-dev_${DEV_VERSION}_${ARCH}.deb"
+  echo "Resolved libaio-dev version: ${DEV_VERSION}"
   download_ubuntu_pool_package "${DEV_FILE}"
 fi
 
-RUNTIME_PKG="$(
-  apt-cache depends libaio-dev \
-    | awk '/Depends: libaio/{gsub(/[<>]/, "", $2); print $2; exit}'
-)"
+RUNTIME_PKG="$(runtime_package_name libaio-dev)"
 
 if [[ -n "${RUNTIME_PKG}" ]]; then
   echo "Detected libaio runtime dependency: ${RUNTIME_PKG}"
   if ! apt-get download "${RUNTIME_PKG}"; then
     echo "WARN: configured APT mirror failed for ${RUNTIME_PKG}; trying Ubuntu archive mirrors."
-    RUNTIME_VERSION="$(apt-cache policy "${RUNTIME_PKG}" | awk '/Candidate:/ {print $2; exit}')"
+    RUNTIME_VERSION="$(package_candidate_version "${RUNTIME_PKG}")"
     ARCH="$(dpkg --print-architecture)"
     RUNTIME_FILE="${RUNTIME_PKG}_${RUNTIME_VERSION}_${ARCH}.deb"
+    echo "Resolved ${RUNTIME_PKG} version: ${RUNTIME_VERSION}"
     download_ubuntu_pool_package "${RUNTIME_FILE}"
   fi
 else
-  echo "WARN: could not resolve libaio runtime dependency from apt-cache."
+  echo "ERROR: could not resolve libaio runtime dependency."
+  exit 1
 fi
 
 shopt -s nullglob
 DEBS=( *.deb )
 if [[ "${#DEBS[@]}" -eq 0 ]]; then
-  echo "ERROR: apt-get download produced no .deb files."
+  echo "ERROR: no libaio .deb files were downloaded."
   exit 1
 fi
 
@@ -154,10 +196,7 @@ if [[ ! -f "${INCLUDE_DIR}/libaio.h" ]]; then
 fi
 
 LIBAIO_SO="$(
-  find "${EXTRACT_DIR}/usr/lib" "${EXTRACT_DIR}/lib" \
-    \( -type f -o -type l \) 2>/dev/null \
-    | grep -E '/libaio\.so($|\.)' \
-    | head -n 1 || true
+  find "${EXTRACT_DIR}/usr/lib" "${EXTRACT_DIR}/lib"     \( -type f -o -type l \) 2>/dev/null     | grep -E '/libaio\.so($|\.)'     | head -n 1 || true
 )"
 
 if [[ -z "${LIBAIO_SO}" ]]; then
